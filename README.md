@@ -20,7 +20,7 @@ A thin, dependency-free client for the public Paymos Merchant API (HMAC-SHA256 a
 - PHP 7.4 / 8.x compatible
 - No Composer runtime dependencies (uses ext-curl, ext-hash, ext-json)
 - Pluggable transport (cURL by default, mock for tests)
-- Built-in retry on 429 / 5xx with exponential backoff
+- Built-in retry with exponential backoff and `Retry-After` support (429 on any method; 5xx only on idempotent methods)
 - Webhook signature verification with secret-rotation support, Stripe-style multi-signature grace period
 
 ---
@@ -123,7 +123,7 @@ $invoice = $client->invoices()->create(array(
 
 ```php
 $invoice = $client->invoices()->get('inv_xxxxxxxxxxxx');
-$status  = $invoice['status'];                    // "new" | "confirming" | "paid" | ...
+$status  = $invoice['status'];                    // "awaiting_client" | "confirming" | "paid" | ...
 $paid    = $invoice['payment']['paid'] ?? null;   // string decimal, or null
 ```
 
@@ -137,15 +137,19 @@ $client->invoices()->cancel('inv_xxxxxxxxxxxx', 'customer abandoned checkout');
 
 ### Sandbox: simulate a payment
 
-In sandbox you can drive an invoice to a paid state without any real
+In sandbox you can drive an invoice to a terminal state without any real
 on-chain activity. This call requires a `pk_test_...` / `rk_test_...` key.
+`simulatePayment` takes a **stage string** — the server computes the amount:
+
+| Stage        | Result                                          |
+| ------------ | ----------------------------------------------- |
+| `'paid'`     | invoice fully paid (`invoice.paid`)             |
+| `'overpaid'` | invoice paid above the requested amount (`invoice.paid_over`) |
+| `'underpay'` | partial payment, then final underpayment (`invoice.underpaid`) |
+| `'cancel'`   | invoice cancelled (`invoice.cancelled`)         |
 
 ```php
-$client->invoices()->simulatePayment('inv_xxxxxxxxxxxx', array(
-    'currency' => 'USDT',
-    'network'  => 'tron',
-    'amount'   => '10.00',
-));
+$client->invoices()->simulatePayment('inv_xxxxxxxxxxxx', 'paid');
 ```
 
 ---
@@ -279,7 +283,7 @@ if (strpos($event['event_type'], 'invoice.') === 0) {
             // Terminal: invoice expired or cancelled.
             break;
         case StatusMapper::ACTION_IGNORE:
-            // Informational event (invoice.created, token_selected).
+            // Unrecognized / future invoice event - no state change.
             break;
     }
 } else {
@@ -354,13 +358,30 @@ invoice/withdrawal status string.
 ## Error handling
 
 Every non-2xx response raises `Paymos\Exception\ApiException` (or a
-subclass). The exception exposes the structured error envelope returned
-by the server:
+subclass). The server uses RFC 9457 "Problem Details" in two shapes.
+
+A **single** error is flat — `code`/`field`/`detail` live at the top level,
+read them with `errorCode()`, `field()` and `detail()`:
+
+```json
+{
+  "type":   "https://paymos.io/docs/errors/codes#insufficient_balance",
+  "title":  "Conflict",
+  "status": 409,
+  "detail": "Insufficient balance.",
+  "code":   "insufficient_balance",
+  "field":  null
+}
+```
+
+**Multiple** validation errors add an `errors[]` breakdown — iterate
+`errors()` (and `errorCode()`/`field()` return the first entry):
 
 ```json
 {
   "status": 400,
   "title":  "Bad Request",
+  "code":   "validation_failed",
   "errors": [
     { "code": "field_required", "field": "currency", "message": "Field is required." }
   ]
@@ -385,13 +406,15 @@ try {
 } catch (NotFoundException $e) {
     // 404
 } catch (ConflictException $e) {
-    // 409 - e.g. insufficient_balance, withdrawal_quota_exceeded
+    // 409 - e.g. insufficient_balance. $e->errorCode() / $e->detail() (flat envelope).
 } catch (GoneException $e) {
     // 410 - resource is in a terminal state (cancel after Paid, etc.)
 } catch (RateLimitException $e) {
-    // 429 - SDK already retries automatically; surfaces only after RetryPolicy is exhausted.
+    // 429 - SDK retries automatically (any method); surfaces only after RetryPolicy
+    // is exhausted. $e->retryAfterSeconds() gives the server's Retry-After hint.
 } catch (UnavailableException $e) {
-    // 503 - upstream / transient
+    // 503 - upstream / transient. Retried only on idempotent methods (GET/HEAD);
+    // a 503 on a POST surfaces immediately (it may already have taken effect).
 } catch (ApiException $e) {
     // any other API error
 }
@@ -414,9 +437,18 @@ The HTTP status -> exception class mapping (see
 
 ### Retries
 
-`RetryingTransport` automatically retries 429 and 5xx responses with
-exponential backoff (default: 2 retries, 150 ms base). Override by
-constructing the client with a custom transport:
+`RetryingTransport` retries with exponential backoff (default: 2 retries,
+150 ms base), honoring the server's `Retry-After` header when it asks for
+longer than the computed backoff. Retry safety is method-aware:
+
+- **429** is retried for any method — rate limiting happens before the
+  request is processed, so no side effect occurred.
+- **5xx** is retried only for idempotent methods (`GET`/`HEAD`/`OPTIONS`).
+  A 5xx on a non-idempotent `POST` (cancel / simulate) is **not** retried —
+  it may already have taken effect server-side. Invoice/withdrawal creation
+  is additionally idempotency-keyed by `external_order_id`.
+
+Override by constructing the client with a custom transport:
 
 ```php
 use Paymos\Client;
@@ -481,7 +513,7 @@ use Paymos\Http\MockTransport;
 use Paymos\Http\HttpResponse;
 
 $transport = new MockTransport(array(
-    new HttpResponse(200, '{"invoice_id":"inv_123","status":"new"}', array()),
+    new HttpResponse(200, '{"invoice_id":"inv_123","status":"awaiting_client"}', array()),
 ));
 $client = new Client(new ClientConfig('pk_test_a', 'sk_test_b'), $transport);
 $client->invoices()->get('inv_123');

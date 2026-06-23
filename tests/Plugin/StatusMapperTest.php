@@ -19,10 +19,12 @@ function test_status_mapper_invoice_terminal_events()
     assertSameValue(StatusMapper::ACTION_CANCELLED, StatusMapper::paymentAction('invoice.cancelled'),  'invoice.cancelled → cancelled');
 }
 
-function test_status_mapper_invoice_informational_events()
+function test_status_mapper_invoice_reorg_regression_event()
 {
-    assertSameValue(StatusMapper::ACTION_IGNORE, StatusMapper::paymentAction('invoice.created'),        'invoice.created → ignore');
-    assertSameValue(StatusMapper::ACTION_IGNORE, StatusMapper::paymentAction('invoice.token_selected'), 'invoice.token_selected → ignore');
+    // invoice.awaiting_payment is emitted ONLY on a reorg regression (a counted
+    // payment vanished on-chain). The coarse mapper keeps the order in motion.
+    assertSameValue(StatusMapper::ACTION_PROCESSING, StatusMapper::paymentAction('invoice.awaiting_payment'),
+        'invoice.awaiting_payment (reorg) → processing');
 }
 
 function test_status_mapper_invoice_unknown_event()
@@ -80,7 +82,8 @@ function test_status_mapper_precise_invoice_actions_for_plugin_toolkit()
     assertSameValue(StatusMapper::ACTION_PAYMENT_COMPLETE, StatusMapper::invoiceAction('invoice.paid_over'), 'overpaid invoice completes payment.');
     assertSameValue(StatusMapper::ACTION_FAIL_ORDER, StatusMapper::invoiceAction('invoice.underpaid'), 'final underpayment fails order.');
     assertSameValue(StatusMapper::ACTION_CANCEL_ORDER, StatusMapper::invoiceAction('invoice.expired'), 'expired invoice cancels order.');
-    assertSameValue(StatusMapper::ACTION_IGNORE, StatusMapper::invoiceAction('invoice.created'), 'created invoice is informational for existing orders.');
+    assertSameValue(StatusMapper::ACTION_AWAITING_PAYMENT, StatusMapper::invoiceAction('invoice.awaiting_payment'), 'reorg regression returns order to awaiting payment.');
+    assertSameValue(StatusMapper::ACTION_IGNORE, StatusMapper::invoiceAction('invoice.unknown_future'), 'unknown future event is ignored.');
 }
 
 function test_status_mapper_precise_invoice_action_uses_status_fallback()

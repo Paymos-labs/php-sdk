@@ -36,8 +36,14 @@ final class StatusMapper
 
     // ── Invoice event types ─────────────────────────────────────────────────
 
-    private const EVT_INVOICE_CREATED = 'invoice.created';
-    private const EVT_INVOICE_TOKEN_SELECTED = 'invoice.token_selected';
+    // Server source: Paymos.Domain.Invoices.InvoiceEventTypes (exactly 8 events).
+    // There is NO invoice.created / invoice.token_selected — the server never
+    // emits them (the AwaitingClient->AwaitingPayment confirm is silent).
+    //
+    // Payment regression: a chain reorg phantomed every counted payment and the
+    // invoice fell back to awaiting_payment. The order must return to "awaiting
+    // payment" — a previously-confirmed payment no longer exists on-chain.
+    private const EVT_INVOICE_AWAITING_PAYMENT = 'invoice.awaiting_payment';
     private const EVT_INVOICE_CONFIRMING = 'invoice.confirming';
     private const EVT_INVOICE_UNDERPAID_WAITING = 'invoice.underpaid_waiting';
     private const EVT_INVOICE_PAID = 'invoice.paid';
@@ -83,14 +89,15 @@ final class StatusMapper
             case self::EVT_INVOICE_CANCELLED:
                 return self::ACTION_CANCELLED;
 
-            // Lifecycle events that don't change order state on the merchant side.
-            case self::EVT_INVOICE_CREATED:
-            case self::EVT_INVOICE_TOKEN_SELECTED:
-                return self::ACTION_IGNORE;
+            // Payment regression (reorg): treat as still in motion — the order
+            // stays "processing" while the customer's payment is re-confirmed.
+            case self::EVT_INVOICE_AWAITING_PAYMENT:
+                return self::ACTION_PROCESSING;
         }
 
         // Legacy `status`-based fallback for callers that don't pass eventType.
         switch ($status) {
+            case 'awaiting_payment':
             case 'confirming':
             case 'underpaid_waiting':
             case 'paid':
@@ -122,6 +129,10 @@ final class StatusMapper
         $status = strtolower((string) $status);
 
         switch ($eventType) {
+            // Reorg regression — a previously-counted payment vanished on-chain;
+            // pull the order back to "awaiting payment".
+            case self::EVT_INVOICE_AWAITING_PAYMENT:
+                return self::ACTION_AWAITING_PAYMENT;
             case self::EVT_INVOICE_CONFIRMING:
                 return self::ACTION_CONFIRMING;
             case self::EVT_INVOICE_UNDERPAID_WAITING:
@@ -134,12 +145,11 @@ final class StatusMapper
             case self::EVT_INVOICE_EXPIRED:
             case self::EVT_INVOICE_CANCELLED:
                 return self::ACTION_CANCEL_ORDER;
-            case self::EVT_INVOICE_CREATED:
-            case self::EVT_INVOICE_TOKEN_SELECTED:
-                return self::ACTION_IGNORE;
         }
 
         switch ($status) {
+            case 'awaiting_payment':
+                return self::ACTION_AWAITING_PAYMENT;
             case 'confirming':
                 return self::ACTION_CONFIRMING;
             case 'underpaid_waiting':

@@ -17,12 +17,30 @@ final class CurlTransport implements TransportInterface
             throw new \RuntimeException('Unable to initialize cURL.');
         }
 
+        $timeout = max(1, (int) $timeoutSeconds);
+
         curl_setopt_array($curl, array(
             CURLOPT_CUSTOMREQUEST => strtoupper((string) $method),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => (int) $timeoutSeconds,
+            CURLOPT_TIMEOUT => $timeout,
+            // Connect phase gets its own budget so a stalled TLS handshake can't
+            // silently eat the entire request timeout.
+            CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
             CURLOPT_HTTPHEADER => $this->formatHeaders($headers),
             CURLOPT_HEADER => true,
+            // Always verify TLS. This SDK targets legacy shared hosting where a
+            // broken global cainfo can flip verification off by default — pin it on.
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            // Refuse downgrades below TLS 1.2.
+            CURLOPT_SSLVERSION => CURL_SSLVERSION_TLSv1_2,
+            // Never follow redirects: a 3xx would replay the signed Authorization
+            // header to a different path, breaking the signature and leaking the
+            // credential. Treat a redirect as the response it is.
+            CURLOPT_FOLLOWLOCATION => false,
+            // Only ever speak HTTPS, even if a redirect or typo points elsewhere.
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
         ));
 
         if ($body !== '') {

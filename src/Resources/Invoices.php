@@ -7,7 +7,15 @@ namespace Paymos\Resources;
 final class Invoices extends BaseResource
 {
     private const PATH = '/v1/invoices';
-    private const SANDBOX_PATH = '/v1/sandbox/invoices';
+
+    /**
+     * Sandbox simulation lives on the public (anonymous, CORS) surface,
+     * not under /v1/sandbox — see MerchantApi InvoiceEndpoints.
+     */
+    private const PUBLIC_PATH = '/public/v1/invoices';
+
+    /** Valid sandbox simulation stages accepted by the server. */
+    private const SIMULATE_STAGES = array('paid', 'overpaid', 'underpay', 'cancel');
 
     /**
      * @param array $payload
@@ -48,11 +56,32 @@ final class Invoices extends BaseResource
     }
 
     /**
-     * @param array $payload
-     * @return array
+     * Sandbox only. Drive an open sandbox invoice to a paid/overpaid/underpaid/
+     * cancelled state without real on-chain activity. The server derives the
+     * exact amount from the invoice's expected amount — the client only picks
+     * the stage. Requires a sandbox (`pk_test_…` / `rk_test_…`) credential and
+     * a sandbox invoice; production invoices are rejected.
+     *
+     * This is the public CORS endpoint
+     * `POST /public/v1/invoices/{id}/simulate-payment` with body `{"stage": …}`.
+     *
+     * @param string $invoiceId Prefixed id (e.g. "inv_…").
+     * @param string $stage     One of: paid | overpaid | underpay | cancel.
+     * @return array            InvoiceStatusContract.
      */
-    public function simulatePayment($invoiceId, array $payload)
+    public function simulatePayment($invoiceId, $stage)
     {
-        return $this->requestJson('POST', self::SANDBOX_PATH . '/' . rawurlencode((string) $invoiceId) . '/simulate-payment', $payload);
+        if (!is_string($stage) || !in_array($stage, self::SIMULATE_STAGES, true)) {
+            throw new \InvalidArgumentException(
+                'Invoice simulatePayment stage must be one of: '
+                . implode(', ', self::SIMULATE_STAGES) . '.'
+            );
+        }
+
+        return $this->requestJson(
+            'POST',
+            self::PUBLIC_PATH . '/' . rawurlencode((string) $invoiceId) . '/simulate-payment',
+            array('stage' => $stage)
+        );
     }
 }

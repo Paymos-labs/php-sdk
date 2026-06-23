@@ -43,6 +43,12 @@ abstract class BaseResource
             throw new \RuntimeException('Unable to encode Paymos request JSON.');
         }
 
+        // The server signs ASP.NET Core's Request.QueryString.Value, which
+        // includes the leading '?' (or is empty). Sign the exact same string —
+        // signing the bare "a=b" while the server expects "?a=b" breaks the
+        // signature on any request that carries query parameters.
+        $signedQuery = $query === '' ? '' : '?' . ltrim((string) $query, '?');
+
         $timestamp = (string) call_user_func($this->clock);
         $headers = array(
             'Authorization' => RequestSigner::authorizationHeader(
@@ -51,18 +57,22 @@ abstract class BaseResource
                 $timestamp,
                 $method,
                 $path,
-                $query,
+                $signedQuery,
                 $body
             ),
             'X-Request-Timestamp' => $timestamp,
             'Content-Type' => 'application/json',
         );
 
-        $url = $this->config->baseUrl() . $path . ($query === '' ? '' : '?' . $query);
+        $url = $this->config->baseUrl() . $path . $signedQuery;
         $response = $this->transport->request($method, $url, $headers, $body, $this->config->timeoutSeconds());
 
         if ($response->statusCode() < 200 || $response->statusCode() >= 300) {
-            throw ApiException::fromResponse($response->statusCode(), $response->body());
+            throw ApiException::fromResponse(
+                $response->statusCode(),
+                $response->body(),
+                $response->headers()
+            );
         }
 
         if ($response->body() === '') {

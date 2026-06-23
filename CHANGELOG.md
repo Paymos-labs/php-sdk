@@ -6,6 +6,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The public release history also lives at [paymos.io/changelog](https://paymos.io/changelog).
 
+## [1.0.1] - 2026-06-22
+
+### Changed
+- `AmountGuard` compares amounts as decimals (server-trimmed `"100"` now matches a stored `"100.00"`), hardening every plugin's reconciler and mismatch checks.
+- `StatusMapper` covers the full server invoice/withdrawal event set with no phantom statuses.
+- Richer retry handling: dedicated `RetryPolicy`, expanded `RetryingTransport`, and `CurlTransport` tweaks.
+
+### Fixed
+- `ApiException` / `RateLimitException` / `UnavailableException` parse the error envelope and rate-limit headers more robustly.
+- `Invoices` and `BaseResource` aligned with the current Paymos Merchant API surface.
+
 ## [1.0.0] - 2026-05-30
 
 ### Added

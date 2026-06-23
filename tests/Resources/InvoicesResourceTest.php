@@ -30,7 +30,7 @@ final class CapturingTransport implements TransportInterface
 function test_invoices_resource_gets_cancels_and_simulates_payment()
 {
     $transport = new MockTransport(array(
-        new HttpResponse(200, '{"invoice_id":"inv_123","status":"new"}', array()),
+        new HttpResponse(200, '{"invoice_id":"inv_123","status":"awaiting_client"}', array()),
         new HttpResponse(200, '{"invoice_id":"inv_123","status":"cancelled"}', array()),
         new HttpResponse(200, '{"invoice_id":"inv_123","status":"paid"}', array()),
     ));
@@ -44,7 +44,7 @@ function test_invoices_resource_gets_cancels_and_simulates_payment()
 
     $client->invoices()->get('inv_123');
     $client->invoices()->cancel('inv_123', 'merchant requested');
-    $client->invoices()->simulatePayment('inv_123', array('amount' => '10.00', 'currency' => 'USDT', 'network' => 'tron'));
+    $client->invoices()->simulatePayment('inv_123', 'paid');
 
     $requests = $transport->requests();
     assertSameValue('GET', $requests[0]['method'], 'Invoice get must use GET.');
@@ -53,7 +53,8 @@ function test_invoices_resource_gets_cancels_and_simulates_payment()
     assertSameValue('https://api.paymos.io/v1/invoices/inv_123/cancel', $requests[1]['url'], 'Invoice cancel must use public v1 path.');
     assertSameValue('{"reason":"merchant requested"}', $requests[1]['body'], 'Invoice cancel must encode the required reason in JSON body.');
     assertSameValue('POST', $requests[2]['method'], 'Invoice simulatePayment must use POST.');
-    assertSameValue('https://api.paymos.io/v1/sandbox/invoices/inv_123/simulate-payment', $requests[2]['url'], 'Invoice simulatePayment must use sandbox v1 path.');
+    assertSameValue('https://api.paymos.io/public/v1/invoices/inv_123/simulate-payment', $requests[2]['url'], 'Invoice simulatePayment must use the public v1 simulate-payment path.');
+    assertSameValue('{"stage":"paid"}', $requests[2]['body'], 'Invoice simulatePayment must send the stage in the JSON body.');
 }
 
 function test_invoices_cancel_rejects_empty_reason()

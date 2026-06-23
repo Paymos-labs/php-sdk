@@ -21,13 +21,13 @@ final class AmountGuard
             return true;
         }
 
-        if (self::normalizeAmount($invoiceAmount) !== self::normalizeAmount($currentOrderAmount)
+        if (!self::amountsEqual($invoiceAmount, $currentOrderAmount)
             || $invoiceCurrency !== strtoupper(trim((string) $currentOrderCurrency))) {
             return false;
         }
 
         $eventOrderAmount = trim((string) $eventOrderAmount);
-        if ($eventOrderAmount !== '' && self::normalizeAmount($eventOrderAmount) !== self::normalizeAmount($invoiceAmount)) {
+        if ($eventOrderAmount !== '' && !self::amountsEqual($eventOrderAmount, $invoiceAmount)) {
             return false;
         }
 
@@ -58,6 +58,45 @@ final class AmountGuard
         );
     }
 
+    /**
+     * Decimal-safe equality for two money strings. Prefers bcmath (exact,
+     * scale 8 — covers every Paymos amount precision); falls back to comparing
+     * fully canonicalized strings when ext-bcmath is unavailable.
+     *
+     * Both paths treat "50", "50.00", "050.00", "+50" and "50.0" as equal —
+     * leading zeros, a leading "+", and trailing fractional zeros are all
+     * insignificant. The earlier normalizer trimmed only trailing zeros and a
+     * leading "+", so "50.00" vs "050.00" was a false mismatch that pushed a
+     * legitimately-paid order into manual review.
+     */
+    public static function amountsEqual($a, $b)
+    {
+        $a = trim((string) $a);
+        $b = trim((string) $b);
+
+        if (function_exists('bccomp') && self::isNumericAmount($a) && self::isNumericAmount($b)) {
+            return bccomp($a, $b, 8) === 0;
+        }
+
+        return self::normalizeAmount($a) === self::normalizeAmount($b);
+    }
+
+    /**
+     * Whether a string is a plain decimal amount bcmath can compare safely
+     * (optional sign, digits, optional single fractional part). Guards against
+     * feeding bccomp junk like "" or "abc", which it would silently read as 0.
+     */
+    private static function isNumericAmount($value)
+    {
+        return (bool) preg_match('/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/', (string) $value);
+    }
+
+    /**
+     * Canonical form for fallback string comparison: strip a leading "+",
+     * insignificant leading zeros in the integer part, and trailing zeros in the
+     * fractional part (then a dangling dot). "050.00" → "50", "50.0" → "50",
+     * ".5" → "0.5", "" → "".
+     */
     private static function normalizeAmount($amount)
     {
         $value = trim((string) $amount);
@@ -65,11 +104,26 @@ final class AmountGuard
             return '';
         }
 
-        if (strpos($value, '.') === false) {
-            return ltrim($value, '+');
+        $sign = '';
+        if ($value !== '' && ($value[0] === '+' || $value[0] === '-')) {
+            $sign = $value[0] === '-' ? '-' : '';
+            $value = substr($value, 1);
         }
 
-        $value = rtrim(rtrim($value, '0'), '.');
-        return $value === '' ? '0' : ltrim($value, '+');
+        if (strpos($value, '.') === false) {
+            $int = ltrim($value, '0');
+            $int = $int === '' ? '0' : $int;
+            return ($int === '0' ? '' : $sign) . $int;
+        }
+
+        list($int, $frac) = explode('.', $value, 2);
+        $int = ltrim($int, '0');
+        $int = $int === '' ? '0' : $int;
+        $frac = rtrim($frac, '0');
+
+        $result = $frac === '' ? $int : $int . '.' . $frac;
+
+        // Drop the sign for a canonical zero so "-0" and "0" match.
+        return ($result === '0' ? '' : $sign) . $result;
     }
 }

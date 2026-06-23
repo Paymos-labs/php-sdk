@@ -36,7 +36,7 @@ function test_webhook_event_exposes_invoice_payload_fields()
 
 function test_webhook_event_returns_empty_strings_for_missing_scalar_fields()
 {
-    $event = new WebhookEvent(array('event_id' => 'evt_123', 'event_type' => 'invoice.created'));
+    $event = new WebhookEvent(array('event_id' => 'evt_123', 'event_type' => 'invoice.expired'));
 
     assertSameValue('', $event->invoiceId(), 'missing invoice id must return empty string.');
     assertSameValue('', $event->projectId(), 'missing project id must return empty string.');

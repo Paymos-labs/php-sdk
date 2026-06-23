@@ -83,7 +83,26 @@ final class InvoiceReverseVerifier
 
             $path = explode('.', $check[0]);
             $actual = $this->field($invoice, $path);
-            if ((string) $expected[$key] !== $actual) {
+            $expectedValue = (string) $expected[$key];
+
+            if ($key === 'amount') {
+                // The server trims trailing zeros on the wire ("100.00" -> "100"),
+                // so a raw string compare would reject most paid invoices. Compare
+                // decimal-safe, exactly as AmountGuard does.
+                if (!AmountGuard::amountsEqual($expectedValue, $actual)) {
+                    return $check[1];
+                }
+                continue;
+            }
+
+            if ($key === 'currency') {
+                if (strtoupper(trim($expectedValue)) !== strtoupper(trim($actual))) {
+                    return $check[1];
+                }
+                continue;
+            }
+
+            if ($expectedValue !== $actual) {
                 return $check[1];
             }
         }
