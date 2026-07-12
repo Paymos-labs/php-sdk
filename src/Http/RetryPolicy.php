@@ -69,8 +69,17 @@ final class RetryPolicy
             return true;
         }
 
-        $method = strtoupper(trim((string) $method));
+        return $this->isIdempotentMethod($method);
+    }
 
+    public function shouldRetryTransportError($method)
+    {
+        return $this->isIdempotentMethod($method);
+    }
+
+    private function isIdempotentMethod($method)
+    {
+        $method = strtoupper(trim((string) $method));
         return $method === 'GET' || $method === 'HEAD' || $method === 'OPTIONS';
     }
 

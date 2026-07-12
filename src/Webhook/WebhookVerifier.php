@@ -22,7 +22,7 @@ use Paymos\Exception\TimestampSkewException;
  * pattern) — accept the message if ANY of them validates.
  *
  * The webhook secret has the form `whsec_<base62>` and is shown to the merchant
- * once at /dashboard/developers/webhooks (also rotatable from the same screen).
+ * once at /developers/webhooks (also rotatable from the same screen).
  */
 final class WebhookVerifier
 {
@@ -38,8 +38,12 @@ final class WebhookVerifier
             throw new \InvalidArgumentException('Webhook secret must be a non-empty string.');
         }
 
+        if (!is_int($toleranceSeconds) || $toleranceSeconds < 0) {
+            throw new \InvalidArgumentException('Webhook tolerance must be a non-negative integer.');
+        }
+
         $this->secret = $secret;
-        $this->toleranceSeconds = (int) $toleranceSeconds;
+        $this->toleranceSeconds = $toleranceSeconds;
     }
 
     public function verify($signatureHeader, $rawBody, $now = null)
@@ -91,6 +95,8 @@ final class WebhookVerifier
             throw new \RuntimeException('Webhook payload is not valid JSON.');
         }
 
+        $this->assertEnvelope($decoded);
+
         return $decoded;
     }
 
@@ -100,6 +106,7 @@ final class WebhookVerifier
     private function parseHeader($header)
     {
         $timestamp = null;
+        $timestampCount = 0;
         $signatures = array();
         $parts = explode(',', $header);
 
@@ -110,7 +117,16 @@ final class WebhookVerifier
             }
 
             if ($keyValue[0] === 't' && ctype_digit($keyValue[1])) {
-                $timestamp = (int) $keyValue[1];
+                $parsedTimestamp = filter_var(
+                    $keyValue[1],
+                    FILTER_VALIDATE_INT,
+                    array('options' => array('min_range' => 0))
+                );
+                if ($parsedTimestamp === false) {
+                    return null;
+                }
+                $timestamp = $parsedTimestamp;
+                $timestampCount++;
                 continue;
             }
 
@@ -119,10 +135,32 @@ final class WebhookVerifier
             }
         }
 
-        if ($timestamp === null || count($signatures) === 0) {
+        if ($timestamp === null || $timestampCount !== 1 || count($signatures) === 0) {
             return null;
         }
 
         return array('timestamp' => $timestamp, 'signatures' => $signatures);
+    }
+
+    /**
+     * @param array<string, mixed> $event
+     */
+    private function assertEnvelope(array $event)
+    {
+        if (!isset($event['event_id']) || !is_string($event['event_id']) || trim($event['event_id']) === '') {
+            throw new \RuntimeException('Webhook event_id must be a non-empty string.');
+        }
+        if (!isset($event['event_type']) || !is_string($event['event_type']) || trim($event['event_type']) === '') {
+            throw new \RuntimeException('Webhook event_type must be a non-empty string.');
+        }
+        if (!isset($event['version']) || !is_int($event['version']) || $event['version'] < 1) {
+            throw new \RuntimeException('Webhook version must be a positive integer.');
+        }
+        if (!isset($event['occurred_at']) || !is_int($event['occurred_at']) || $event['occurred_at'] < 0) {
+            throw new \RuntimeException('Webhook occurred_at must be a non-negative Unix timestamp.');
+        }
+        if (!isset($event['data']) || !is_array($event['data'])) {
+            throw new \RuntimeException('Webhook data must be a JSON object.');
+        }
     }
 }

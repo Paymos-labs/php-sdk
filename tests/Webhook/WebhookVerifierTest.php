@@ -62,3 +62,35 @@ function test_webhook_verifier_rejects_bad_signature()
     );
 }
 
+function test_webhook_verifier_rejects_duplicate_timestamps()
+{
+    $secret = 'whsec_test_secret';
+    $timestamp = 1739281200;
+    $body = '{"event_id":"evt_123"}';
+    $signature = hash_hmac('sha256', (string) $timestamp . '.' . $body, $secret);
+    $verifier = new WebhookVerifier($secret, 300);
+
+    assertFalseValue(
+        $verifier->verify('t=' . $timestamp . ',t=' . $timestamp . ',v1=' . $signature, $body, $timestamp),
+        'Webhook verifier must reject an ambiguous timestamp header.'
+    );
+}
+
+function test_webhook_verifier_validates_verified_event_envelope()
+{
+    $secret = 'whsec_test_secret';
+    $timestamp = 1739281200;
+    $body = '{"event_id":"evt_123","event_type":"invoice.paid","data":{}}';
+    $signature = hash_hmac('sha256', (string) $timestamp . '.' . $body, $secret);
+    $verifier = new WebhookVerifier($secret, 300);
+
+    try {
+        $verifier->decodeVerifiedPayload('t=' . $timestamp . ',v1=' . $signature, $body, $timestamp);
+    } catch (\RuntimeException $error) {
+        assertTrueValue(strpos($error->getMessage(), 'version') !== false, 'Missing version must be rejected.');
+        return;
+    }
+
+    throw new \RuntimeException('Malformed verified webhook envelope was accepted.');
+}
+

@@ -4,9 +4,9 @@ Official PHP SDK for the Paymos Merchant API. Accept USDT (11 chains: Tron, Ethe
 
 This is the same SDK the [WooCommerce](https://github.com/paymos-labs/woocommerce), [WHMCS](https://github.com/paymos-labs/whmcs), and [OpenCart](https://github.com/paymos-labs/opencart) plugins use under the hood. Drop it into a custom PHP backend and you get the same HMAC signing, webhook verification, and retry logic the official plugins ship.
 
-- Documentation: [paymos.io/docs/quick-start](https://paymos.io/docs/quick-start)
-- API reference: [paymos.io/dashboard/developers/api](https://paymos.io/dashboard/developers/api)
-- Webhooks: [paymos.io/dashboard/developers/webhooks](https://paymos.io/dashboard/developers/webhooks)
+- Documentation: [paymos.io/docs/server-sdks](https://paymos.io/docs/server-sdks)
+- API credentials: [app.paymos.io/developers/api](https://app.paymos.io/developers/api)
+- Webhooks dashboard: [app.paymos.io/developers/webhooks](https://app.paymos.io/developers/webhooks)
 
 [![PHP 7.4+](https://img.shields.io/badge/PHP-7.4%2B-777bb4)](https://www.php.net/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
@@ -41,7 +41,7 @@ OpenCart) and register `Paymos\` -> `src/` with your autoloader.
 ### 1. Get your credentials
 
 In the Paymos dashboard go to **Developers -> API Keys**
-(`/dashboard/developers/api`) and create an API credential. You will
+(`/developers/api`) and create an API credential. You will
 receive two strings:
 
 | Field        | Format                                      | Notes                                |
@@ -74,9 +74,13 @@ $client = new Client(new ClientConfig(
 ```php
 $balances = $client->balances()->get();
 foreach ($balances as $b) {
-    echo $b['currency'] . ' / ' . $b['network'] . ': ' . $b['available'] . PHP_EOL;
+    echo $b['currency'] . ': ' . $b['available'] . PHP_EOL;
 }
 ```
+
+Each entry is one coin's balance totalled across every network — a
+merchant's balance is network-agnostic; the network is chosen only at
+withdrawal time.
 
 ---
 
@@ -127,6 +131,26 @@ $status  = $invoice['status'];                    // "awaiting_client" | "confir
 $paid    = $invoice['payment']['paid'] ?? null;   // string decimal, or null
 ```
 
+### List invoices
+
+Fetch one page, or lazily follow the opaque cursor. Repeatable filters such as
+`status` are passed as arrays; query keys are deterministically RFC3986-encoded
+and the exact query string is covered by HMAC.
+
+```php
+$page = $client->invoices()->listPage(array(
+    'project_id' => 'prj_xxxxxxxxxxxx',
+    'status'     => array('paid', 'paid_over'),
+    'limit'      => 50,
+));
+
+foreach ($client->invoices()->iterate(array('status' => array('paid')), 10) as $invoice) {
+    echo $invoice['invoice_id'] . PHP_EOL;
+}
+```
+
+The second argument to `iterate()` is a client-side maximum page count.
+
 ### Cancel an invoice
 
 A non-empty reason (max 500 chars) is **required** by the server:
@@ -170,7 +194,7 @@ echo $wd['withdrawal_id'];  // "wdr_..."
 ```
 
 The destination must already be on the merchant's whitelist
-(`/dashboard/whitelist`) - the server returns `403 whitelist_required`
+(`/balance`) - the server returns `403 whitelist_required`
 otherwise.
 
 ### Get / cancel / simulate
@@ -182,6 +206,19 @@ $client->withdrawals()->cancel('wdr_xxxxxxxxxxxx', 'merchant requested');
 
 // Sandbox only:
 $client->withdrawals()->simulateCompletion('wdr_xxxxxxxxxxxx');
+```
+
+### List withdrawals
+
+```php
+$page = $client->withdrawals()->listPage(array(
+    'status' => array('created', 'pending_review'),
+    'limit'  => 20,
+));
+
+foreach ($client->withdrawals()->iterate(array('status' => array('completed')), 10) as $withdrawal) {
+    echo $withdrawal['withdrawal_id'] . PHP_EOL;
+}
 ```
 
 ---
@@ -205,7 +242,7 @@ $key = IdempotencyKey::externalOrderId('wc');   // "wc_550e8400-e29b-41d4-a716-4
 ## Webhooks
 
 Webhooks are configured at **Developers -> Webhooks**
-(`/dashboard/developers/webhooks`). The dashboard generates a
+(`/developers/webhooks`). The dashboard generates a
 `whsec_...` secret, supports rotation with a grace period, and shows
 a delivery log + manual replay for each event.
 
@@ -540,8 +577,8 @@ changes.
 ## Support
 
 - Documentation: [paymos.io/docs/quick-start](https://paymos.io/docs/quick-start)
-- API reference: [paymos.io/dashboard/developers/api](https://paymos.io/dashboard/developers/api)
-- Webhooks dashboard: [paymos.io/dashboard/developers/webhooks](https://paymos.io/dashboard/developers/webhooks)
+- API credentials: [app.paymos.io/developers/api](https://app.paymos.io/developers/api)
+- Webhooks dashboard: [app.paymos.io/developers/webhooks](https://app.paymos.io/developers/webhooks)
 - Authentication deep-dive: [paymos.io/docs/authentication](https://paymos.io/docs/authentication)
 - Webhook verification: [paymos.io/docs/webhooks/verify](https://paymos.io/docs/webhooks/verify)
 - Webhook retry schedule: [paymos.io/docs/webhooks/retry](https://paymos.io/docs/webhooks/retry)

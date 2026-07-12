@@ -10,7 +10,7 @@ use Paymos\Http\MockTransport;
 function test_balances_resource_gets_all_balances()
 {
     $transport = new MockTransport(array(
-        new HttpResponse(200, '[{"currency":"USDT","network":"TRC20","available":"10.00"}]', array()),
+        new HttpResponse(200, '[{"currency":"USDT","available":"10.00"}]', array()),
     ));
     $client = new Client(
         new ClientConfig('rk_test_key', 'sk_test_secret', 'https://api.paymos.io', 30),

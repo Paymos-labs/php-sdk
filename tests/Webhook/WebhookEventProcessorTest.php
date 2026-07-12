@@ -11,7 +11,7 @@ function test_webhook_event_processor_verifies_decodes_and_deduplicates_event()
 {
     $secret = 'whsec_test_secret';
     $timestamp = 1739281200;
-    $body = '{"event_id":"evt_123","type":"invoice.paid"}';
+    $body = '{"event_id":"evt_123","event_type":"invoice.paid","version":1,"occurred_at":1739281200,"data":{}}';
     $signature = hash_hmac('sha256', (string) $timestamp . '.' . $body, $secret);
     $header = 't=' . $timestamp . ',v1=' . $signature;
     $processor = new WebhookEventProcessor(

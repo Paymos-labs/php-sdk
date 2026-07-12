@@ -7,7 +7,7 @@
   "homepage": "https://paymos.io",
   "support": {
     "issues": "https://github.com/paymos-labs/php-sdk/issues",
-    "docs": "https://paymos.io/docs/quick-start",
+    "docs": "https://paymos.io/docs/server-sdks",
     "email": "support@paymos.io"
   },
   "authors": [
@@ -21,7 +21,11 @@
     "php": ">=7.4",
     "ext-curl": "*",
     "ext-hash": "*",
-    "ext-json": "*"
+    "ext-json": "*",
+    "ext-openssl": "*"
+  },
+  "require-dev": {
+    "phpstan/phpstan": "^2.1"
   },
   "autoload": {
     "psr-4": {
@@ -29,7 +33,12 @@
     }
   },
   "scripts": {
-    "test": "php tests/run.php"
+    "analyse": "phpstan analyse --no-progress --memory-limit=1G",
+    "test": "php tests/run.php",
+    "check": ["@test", "@analyse"]
+  },
+  "config": {
+    "sort-packages": true
   }
 }
 

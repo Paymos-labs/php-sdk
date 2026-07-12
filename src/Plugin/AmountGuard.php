@@ -105,7 +105,7 @@ final class AmountGuard
         }
 
         $sign = '';
-        if ($value !== '' && ($value[0] === '+' || $value[0] === '-')) {
+        if ($value[0] === '+' || $value[0] === '-') {
             $sign = $value[0] === '-' ? '-' : '';
             $value = substr($value, 1);
         }

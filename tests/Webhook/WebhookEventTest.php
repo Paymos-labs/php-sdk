@@ -9,6 +9,8 @@ function test_webhook_event_exposes_invoice_payload_fields()
     $event = new WebhookEvent(array(
         'event_id' => 'evt_123',
         'event_type' => 'invoice.paid',
+        'version' => 1,
+        'occurred_at' => 1739281200,
         'data' => array(
             'invoice_id' => 'inv_123',
             'project_id' => 'prj_123',
@@ -24,6 +26,8 @@ function test_webhook_event_exposes_invoice_payload_fields()
 
     assertSameValue('evt_123', $event->id(), 'event id must be exposed.');
     assertSameValue('invoice.paid', $event->type(), 'event type must be exposed.');
+    assertSameValue(1, $event->version(), 'event version must be exposed.');
+    assertSameValue(1739281200, $event->occurredAt(), 'event timestamp must be exposed.');
     assertSameValue(true, $event->isInvoiceEvent(), 'invoice.* must be recognized as invoice event.');
     assertSameValue('inv_123', $event->invoiceId(), 'invoice id must be read from data.invoice_id.');
     assertSameValue('prj_123', $event->projectId(), 'project id must be read from data.project_id.');

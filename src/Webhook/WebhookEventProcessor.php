@@ -19,9 +19,13 @@ final class WebhookEventProcessor
 
     public function __construct(WebhookVerifier $verifier, EventStoreInterface $eventStore, $dedupTtlSeconds = 604800)
     {
+        if (!is_int($dedupTtlSeconds) || $dedupTtlSeconds < 1) {
+            throw new \InvalidArgumentException('Webhook deduplication TTL must be a positive integer.');
+        }
+
         $this->verifier = $verifier;
         $this->eventStore = $eventStore;
-        $this->dedupTtlSeconds = (int) $dedupTtlSeconds;
+        $this->dedupTtlSeconds = $dedupTtlSeconds;
     }
 
     /**

@@ -12,7 +12,7 @@ final class InMemoryEventStore implements EventStoreInterface
     /** @var callable */
     private $clock;
 
-    public function __construct(callable $clock = null)
+    public function __construct(?callable $clock = null)
     {
         $this->clock = $clock ?: static function () {
             return time();

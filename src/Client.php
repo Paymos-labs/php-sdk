@@ -10,6 +10,7 @@ use Paymos\Http\RetryingTransport;
 use Paymos\Http\TransportInterface;
 use Paymos\Resources\Balances;
 use Paymos\Resources\Invoices;
+use Paymos\Resources\System;
 use Paymos\Resources\Withdrawals;
 
 final class Client
@@ -23,7 +24,7 @@ final class Client
     /** @var callable */
     private $clock;
 
-    public function __construct(ClientConfig $config, TransportInterface $transport = null, callable $clock = null)
+    public function __construct(ClientConfig $config, ?TransportInterface $transport = null, ?callable $clock = null)
     {
         $this->config = $config;
         $this->transport = $transport ?: new RetryingTransport(new CurlTransport(), RetryPolicy::default());
@@ -45,5 +46,10 @@ final class Client
     public function balances()
     {
         return new Balances($this->config, $this->transport, $this->clock);
+    }
+
+    public function system()
+    {
+        return new System($this->config, $this->transport, $this->clock);
     }
 }
