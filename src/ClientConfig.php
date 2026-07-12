@@ -7,7 +7,7 @@ namespace Paymos;
 /**
  * Configuration for the Paymos\Client.
  *
- * The credentials are issued at /dashboard/developers/api in the Paymos
+ * The credentials are issued at /developers/api in the Paymos
  * dashboard. Wire format:
  *
  *   API Key       — pk_test_<base62>   (Payment, Sandbox)

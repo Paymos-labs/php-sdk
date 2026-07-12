@@ -64,3 +64,35 @@ function test_withdrawals_cancel_rejects_empty_reason()
     }
     assertTrueValue($threw, 'Withdrawal cancel must reject empty reason locally.');
 }
+
+function test_withdrawals_iterator_follows_cursor_without_changing_filters()
+{
+    $transport = new MockTransport(array(
+        new HttpResponse(200, '{"items":[{"withdrawal_id":"wdr_1"}],"next_cursor":"opaque+/="}', array()),
+        new HttpResponse(200, '{"items":[{"withdrawal_id":"wdr_2"}],"next_cursor":null}', array()),
+    ));
+    $client = new Client(
+        new ClientConfig('rk_test_key', 'sk_test_secret', 'https://api.paymos.io', 30),
+        $transport,
+        static function () { return 1709000000; }
+    );
+
+    $items = iterator_to_array($client->withdrawals()->iterate(array(
+        'status' => array('created'),
+        'limit' => 1,
+    ), 2), false);
+
+    assertSameValue('wdr_1', $items[0]['withdrawal_id'], 'Iterator must yield the first page.');
+    assertSameValue('wdr_2', $items[1]['withdrawal_id'], 'Iterator must follow next_cursor.');
+    $requests = $transport->requests();
+    assertSameValue(
+        'https://api.paymos.io/v1/withdrawals?limit=1&status=created',
+        $requests[0]['url'],
+        'First iterator request must contain stable filters.'
+    );
+    assertSameValue(
+        'https://api.paymos.io/v1/withdrawals?cursor=opaque%2B%2F%3D&limit=1&status=created',
+        $requests[1]['url'],
+        'Next iterator request must add the RFC 3986 encoded cursor and preserve filters.'
+    );
+}

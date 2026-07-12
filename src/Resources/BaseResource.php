@@ -8,6 +8,7 @@ use Paymos\ClientConfig;
 use Paymos\Exception\ApiException;
 use Paymos\Http\RequestSigner;
 use Paymos\Http\TransportInterface;
+use Paymos\Version;
 
 abstract class BaseResource
 {
@@ -36,7 +37,7 @@ abstract class BaseResource
      *
      * @throws ApiException
      */
-    protected function requestJson($method, $path, array $payload = null, $query = '')
+    protected function requestJson($method, $path, ?array $payload = null, $query = '')
     {
         $body = $payload === null ? '' : json_encode($payload, JSON_UNESCAPED_SLASHES);
         if ($body === false) {
@@ -62,6 +63,8 @@ abstract class BaseResource
             ),
             'X-Request-Timestamp' => $timestamp,
             'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+            'User-Agent' => 'paymos-php/' . Version::VERSION,
         );
 
         $url = $this->config->baseUrl() . $path . $signedQuery;
@@ -85,5 +88,62 @@ abstract class BaseResource
         }
 
         return $decoded;
+    }
+
+    /**
+     * Build the exact RFC 3986 query string that is appended to the URL and
+     * covered by the HMAC signature. Keys are sorted so equivalent filter maps
+     * produce identical requests; array values are emitted as repeated keys.
+     *
+     * @param array $filters
+     * @param string[] $allowedKeys
+     * @param string[] $repeatableKeys
+     * @return string Query without the leading question mark.
+     */
+    protected function buildQuery(array $filters, array $allowedKeys, array $repeatableKeys = array())
+    {
+        $allowed = array_fill_keys($allowedKeys, true);
+        $repeatable = array_fill_keys($repeatableKeys, true);
+        foreach ($filters as $key => $_value) {
+            if (!is_string($key) || !isset($allowed[$key])) {
+                throw new \InvalidArgumentException('Unknown Paymos list filter: ' . (string) $key);
+            }
+        }
+
+        ksort($filters, SORT_STRING);
+        $parts = array();
+        foreach ($filters as $key => $value) {
+            if ($value === null) {
+                continue;
+            }
+
+            if (is_array($value) && !isset($repeatable[$key])) {
+                throw new \InvalidArgumentException('Paymos list filter must be supplied once: ' . $key);
+            }
+
+            $values = is_array($value) ? array_values($value) : array($value);
+            if (count($values) === 0) {
+                throw new \InvalidArgumentException('Paymos list filter cannot be empty: ' . $key);
+            }
+
+            if (isset($repeatable[$key])) {
+                sort($values, SORT_STRING);
+            }
+
+            foreach ($values as $item) {
+                if (!is_string($item) && !is_int($item)) {
+                    throw new \InvalidArgumentException(
+                        'Paymos list filter must contain only string or integer values: ' . $key
+                    );
+                }
+                if ((string) $item === '') {
+                    throw new \InvalidArgumentException('Paymos list filter cannot be empty: ' . $key);
+                }
+
+                $parts[] = rawurlencode($key) . '=' . rawurlencode((string) $item);
+            }
+        }
+
+        return implode('&', $parts);
     }
 }

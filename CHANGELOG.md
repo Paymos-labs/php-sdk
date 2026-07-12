@@ -6,6 +6,19 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The public release history also lives at [paymos.io/changelog](https://paymos.io/changelog).
 
+## [1.1.0] - 2026-07-12
+
+- feat(sdk): harden official package release gates
+- docs(php-sdk): align dashboard routes
+- build(php-sdk): configure WordPress static analysis
+- build(php-sdk): add static analysis gate
+- feat(php-sdk): harden retries and webhook contracts
+- test(sdks): align webhook conformance envelope
+- feat(sdk): add official Merchant API clients
+- feat(cms): provision official plugins securely
+- feat(merchant-api): add secure cursor list endpoints
+- refactor(api): move anonymous confirm/simulate to PublicApi
+
 ## [1.0.1] - 2026-06-22
 
 ### Changed

@@ -23,7 +23,21 @@ final class RetryingTransport implements TransportInterface
         $attempt = 0;
 
         do {
-            $response = $this->inner->request($method, $url, $headers, $body, $timeoutSeconds);
+            try {
+                $response = $this->inner->request($method, $url, $headers, $body, $timeoutSeconds);
+            } catch (\RuntimeException $error) {
+                if (!$this->policy->shouldRetryTransportError($method)
+                    || $attempt >= $this->policy->maxRetries()) {
+                    throw $error;
+                }
+
+                $attempt++;
+                $delay = $this->policy->delayMicroseconds($attempt);
+                if ($delay > 0) {
+                    usleep($delay);
+                }
+                continue;
+            }
 
             // Only retry when it is SAFE for this method+status (429 always;
             // 5xx only for idempotent methods — a non-idempotent POST may have

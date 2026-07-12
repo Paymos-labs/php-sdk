@@ -39,6 +39,42 @@ final class ScriptedTransport implements TransportInterface
     }
 }
 
+final class FailingThenSuccessTransport implements TransportInterface
+{
+    /** @var int */
+    public $calls = 0;
+
+    public function request($method, $url, array $headers, $body, $timeoutSeconds)
+    {
+        $this->calls++;
+        if ($this->calls === 1) {
+            throw new \RuntimeException('temporary transport failure');
+        }
+
+        return new HttpResponse(200, '{"ok":true}', array());
+    }
+}
+
+function test_retrying_transport_retries_transport_failure_only_for_idempotent_methods()
+{
+    $get = new FailingThenSuccessTransport();
+    $retrying = new RetryingTransport($get, new RetryPolicy(2, 0));
+    $response = $retrying->request('GET', 'https://api.paymos.io/v1/balances', array(), '', 30);
+    assertSameValue(2, $get->calls, 'GET transport failure must be retried.');
+    assertSameValue(200, $response->statusCode(), 'GET transport retry must return success.');
+
+    $post = new FailingThenSuccessTransport();
+    try {
+        $retrying = new RetryingTransport($post, new RetryPolicy(2, 0));
+        $retrying->request('POST', 'https://api.paymos.io/v1/invoices', array(), '{}', 30);
+    } catch (\RuntimeException $error) {
+        assertSameValue(1, $post->calls, 'POST transport failure must not be retried.');
+        return;
+    }
+
+    throw new \RuntimeException('POST transport failure did not surface.');
+}
+
 function test_retrying_transport_retries_429_and_returns_success()
 {
     $transport = new ScriptedTransport(array(

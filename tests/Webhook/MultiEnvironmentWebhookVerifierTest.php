@@ -29,13 +29,20 @@ function sdk_signed_header($secret, $body, $timestamp = 1709000000)
     return 't=' . $timestamp . ',v1=' . hash_hmac('sha256', $timestamp . '.' . $body, $secret);
 }
 
+function sdk_webhook_body($eventId, array $data = array())
+{
+    return json_encode(array(
+        'event_id' => $eventId,
+        'event_type' => 'invoice.paid',
+        'version' => 1,
+        'occurred_at' => 1709000000,
+        'data' => $data,
+    ));
+}
+
 function test_multi_environment_webhook_verifier_returns_matching_environment_and_event_object()
 {
-    $body = json_encode(array(
-        'event_id' => 'evt_sandbox',
-        'event_type' => 'invoice.paid',
-        'data' => array('is_test' => true),
-    ));
+    $body = sdk_webhook_body('evt_sandbox', array('is_test' => true));
     $verifier = new MultiEnvironmentWebhookVerifier(array(
         'sandbox' => 'whsec_test',
         'live' => 'whsec_live',
@@ -49,7 +56,7 @@ function test_multi_environment_webhook_verifier_returns_matching_environment_an
 
 function test_multi_environment_webhook_verifier_rejects_unknown_secret()
 {
-    $body = json_encode(array('event_id' => 'evt_bad', 'event_type' => 'invoice.paid'));
+    $body = sdk_webhook_body('evt_bad');
     $verifier = new MultiEnvironmentWebhookVerifier(array('live' => 'whsec_live'), new SdkFakeEventStore());
 
     try {
@@ -64,7 +71,7 @@ function test_multi_environment_webhook_verifier_rejects_unknown_secret()
 
 function test_multi_environment_webhook_verifier_rejects_signature_matching_multiple_environments()
 {
-    $body = json_encode(array('event_id' => 'evt_ambiguous', 'event_type' => 'invoice.paid'));
+    $body = sdk_webhook_body('evt_ambiguous');
     $verifier = new MultiEnvironmentWebhookVerifier(array(
         'sandbox' => 'whsec_same',
         'live' => 'whsec_same',
@@ -82,7 +89,7 @@ function test_multi_environment_webhook_verifier_rejects_signature_matching_mult
 
 function test_multi_environment_webhook_verifier_deduplicates_after_signature_match()
 {
-    $body = json_encode(array('event_id' => 'evt_duplicate', 'event_type' => 'invoice.paid'));
+    $body = sdk_webhook_body('evt_duplicate');
     $store = new SdkFakeEventStore();
     $verifier = new MultiEnvironmentWebhookVerifier(array('live' => 'whsec_live'), $store);
     $signature = sdk_signed_header('whsec_live', $body);

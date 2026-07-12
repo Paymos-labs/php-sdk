@@ -35,6 +35,18 @@ final class WebhookEvent
         return $this->stringAt(array('event_type'));
     }
 
+    public function version()
+    {
+        $value = $this->valueAt(array('version'));
+        return is_int($value) ? $value : 0;
+    }
+
+    public function occurredAt()
+    {
+        $value = $this->valueAt(array('occurred_at'));
+        return is_int($value) ? $value : 0;
+    }
+
     public function isInvoiceEvent()
     {
         return strpos(strtolower($this->type()), 'invoice.') === 0;
