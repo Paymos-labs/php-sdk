@@ -14,12 +14,14 @@ use Paymos\Exception\ValidationException;
 
 function test_api_exception_parses_paymos_error_envelope()
 {
-    $body = '{"status":400,"title":"Bad Request","errors":[{"code":"field_required","field":"currency","message":"Field is required."}]}';
+    $body = '{"type":"about:blank","status":400,"title":"Bad Request","detail":"Validation failed.",'
+        . '"code":"validation_failed","errors":[{"code":"field_required","field":"currency","message":"Field is required."}]}';
     $ex = ApiException::fromResponse(400, $body);
 
     assertTrueValue($ex instanceof ValidationException, '400 must yield ValidationException.');
-    assertSameValue('field_required', $ex->errorCode(), 'errorCode() must return errors[0].code.');
-    assertSameValue('currency', $ex->field(), 'field() must return errors[0].field.');
+    assertSameValue('validation_failed', $ex->errorCode(), 'errorCode() must return the top-level code.');
+    assertSameValue(null, $ex->field(), 'field() must return only the top-level field.');
+    assertSameValue('field_required', $ex->errors()[0]['code'], 'errors() preserves field-level codes.');
     assertSameValue('Bad Request', $ex->title(), 'title() must return server-supplied title.');
     assertSameValue(1, count($ex->errors()), 'errors() must contain one entry.');
     assertSameValue(400, $ex->statusCode(), 'statusCode() reflects HTTP status.');
@@ -40,7 +42,8 @@ function test_api_exception_factory_maps_status_codes_to_subclasses()
     );
 
     foreach ($cases as list($code, $expectedClass)) {
-        $ex = ApiException::fromResponse($code, '{"status":' . $code . ',"title":"x","errors":[]}');
+        $ex = ApiException::fromResponse($code, '{"type":"about:blank","status":' . $code
+            . ',"title":"x","detail":"x","code":"x","errors":[]}');
         $fqn = 'Paymos\\Exception\\' . $expectedClass;
         assertTrueValue($ex instanceof $fqn, $code . ' must produce ' . $fqn . ' but got ' . get_class($ex));
         assertTrueValue($ex instanceof ApiException, $code . ' subclass must extend ApiException');
@@ -85,7 +88,7 @@ function test_rate_limit_exception_reads_retry_after_delta_seconds()
 {
     $ex = ApiException::fromResponse(
         429,
-        '{"status":429,"title":"Too Many Requests","code":"rate_limited"}',
+        '{"type":"about:blank","status":429,"title":"Too Many Requests","detail":"Retry later.","code":"rate_limited"}',
         array('Retry-After' => '7')
     );
 

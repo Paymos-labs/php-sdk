@@ -412,12 +412,15 @@ read them with `errorCode()`, `field()` and `detail()`:
 ```
 
 **Multiple** validation errors add an `errors[]` breakdown — iterate
-`errors()` (and `errorCode()`/`field()` return the first entry):
+`errors()` for fields. `errorCode()` and `field()` always read the top-level
+request error; they never promote the first field entry:
 
 ```json
 {
+  "type":   "about:blank",
   "status": 400,
   "title":  "Bad Request",
+  "detail": "Validation failed.",
   "code":   "validation_failed",
   "errors": [
     { "code": "field_required", "field": "currency", "message": "Field is required." }

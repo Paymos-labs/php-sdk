@@ -29,10 +29,9 @@ namespace Paymos\Exception;
  *     "errors": [ { "code": "field_required", "field": "currency", "message": "…" } ]
  *   }
  *
- * `code` is the stable machine-readable identifier — switch on it for
- * programmatic handling and localization. For a single error it is top-level;
- * for multiple it is the envelope category and the per-field specifics live in
- * errors[]. `field` is null for non-field errors (NotFound, generic Conflict).
+ * Top-level `code` is always the authoritative request-level identifier. For
+ * validation failures, per-field specifics remain available in errors[].
+ * `field` is null for non-field errors (NotFound, generic Conflict).
  */
 class ApiException extends \RuntimeException
 {
@@ -48,7 +47,13 @@ class ApiException extends \RuntimeException
     /** @var string|null */
     private $title;
 
-    /** Top-level "code" (single-error envelope), or null. @var string|null */
+    /** @var string|null */
+    private $type;
+
+    /** @var int|null */
+    private $problemStatus;
+
+    /** Authoritative top-level request error code, or null. @var string|null */
     private $topCode;
 
     /** Top-level "field" (single-field validation), or null. @var string|null */
@@ -69,15 +74,14 @@ class ApiException extends \RuntimeException
         }
 
         $decoded = json_decode($this->responseBody, true);
-        if (is_array($decoded)) {
+        if ($this->isCanonicalProblem($decoded)) {
+            $this->type = $decoded['type'];
             if (isset($decoded['title']) && is_string($decoded['title'])) {
                 $this->title = $decoded['title'];
             }
-            // Top-level extension members — present on every RFC 9457 envelope,
-            // and the ONLY place code/field/detail live for single-error
-            // responses (no errors[]). Without reading these, errorCode()/
-            // field() are empty for all 404/409/410/429/503 and single-field
-            // 400s, and detail (e.g. "Insufficient balance.") is lost.
+            $this->problemStatus = $decoded['status'];
+            // Top-level extension members are authoritative for the request.
+            // errors[] remains a field-level breakdown only.
             if (isset($decoded['code']) && is_string($decoded['code'])) {
                 $this->topCode = $decoded['code'];
             }
@@ -188,6 +192,16 @@ class ApiException extends \RuntimeException
         return $this->title;
     }
 
+    public function type()
+    {
+        return $this->type;
+    }
+
+    public function problemStatus()
+    {
+        return $this->problemStatus;
+    }
+
     /**
      * All structured error entries from the server response. Each is
      * ['code' => string, 'field' => ?string, 'message' => string].
@@ -200,27 +214,18 @@ class ApiException extends \RuntimeException
     }
 
     /**
-     * Short stable error code suitable for switching on (e.g. "insufficient_balance",
-     * "field_required", "not_found"). Prefers the first errors[] entry (multi-error
-     * envelope), then the top-level "code" (single-error envelope), then empty string.
+     * Stable request-level error code. Per-field errors remain available through errors().
      */
     public function errorCode()
     {
-        if (isset($this->errors[0]) && $this->errors[0]['code'] !== '') {
-            return $this->errors[0]['code'];
-        }
         return $this->topCode !== null ? $this->topCode : '';
     }
 
     /**
-     * Field name (snake_case) for the offending field. Prefers the first
-     * errors[] entry, then the top-level "field" (single-field validation), or null.
+     * Request-level field from the top-level extension, or null.
      */
     public function field()
     {
-        if (isset($this->errors[0])) {
-            return $this->errors[0]['field'];
-        }
         return $this->topField;
     }
 
@@ -237,35 +242,27 @@ class ApiException extends \RuntimeException
 
     private function summaryMessage()
     {
-        if (count($this->errors) === 0) {
-            // Single-error envelope: prefer detail (specific, e.g. "Insufficient
-            // balance."), then field-qualified code, then title, then raw body.
-            if ($this->detail !== null && $this->detail !== '') {
-                $msg = $this->detail;
-                if ($this->topField !== null && $this->topField !== '') {
-                    $msg = $this->topField . ': ' . $msg;
-                }
-                return $msg;
-            }
-            if ($this->topCode !== null && $this->topCode !== '') {
-                return $this->topField !== null && $this->topField !== ''
-                    ? $this->topField . ': ' . $this->topCode
-                    : $this->topCode;
-            }
-            if ($this->title !== null) {
-                return $this->title;
-            }
-            return $this->responseBody === '' ? '(empty response)' : $this->responseBody;
+        if ($this->detail !== null && $this->detail !== '') {
+            return $this->detail;
         }
+        if ($this->topCode !== null && $this->topCode !== '') {
+            return $this->topCode;
+        }
+        if ($this->title !== null) {
+            return $this->title;
+        }
+        return $this->responseBody === '' ? '(empty response)' : $this->responseBody;
+    }
 
-        $first = $this->errors[0];
-        $msg = $first['message'] !== '' ? $first['message'] : ($first['code'] !== '' ? $first['code'] : ($this->title ?? ''));
-        if ($first['field'] !== null && $first['field'] !== '') {
-            $msg = $first['field'] . ': ' . $msg;
-        }
-        if (count($this->errors) > 1) {
-            $msg .= ' (and ' . (count($this->errors) - 1) . ' more)';
-        }
-        return $msg;
+    private function isCanonicalProblem($value)
+    {
+        return is_array($value)
+            && isset($value['type'], $value['title'], $value['status'], $value['detail'], $value['code'])
+            && is_string($value['type'])
+            && is_string($value['title'])
+            && is_int($value['status'])
+            && $value['status'] === $this->statusCode
+            && is_string($value['detail'])
+            && is_string($value['code']);
     }
 }

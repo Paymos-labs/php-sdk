@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Paymos\Http\RequestSigner;
+use Paymos\Exception\ApiException;
 use Paymos\Webhook\WebhookVerifier;
 
 function sdk_contract()
@@ -46,4 +47,14 @@ function test_shared_conformance_rotated_webhook_vector()
         $verifier->verify($vector['header'], $vector['raw_body'], $vector['now']),
         'PHP SDK must accept any valid rotated v1 webhook signature.'
     );
+}
+
+function test_shared_conformance_problem_details_uses_top_level_code()
+{
+    $vector = sdk_contract()['vectors']['problem_details']['multi'];
+    $error = ApiException::fromResponse(400, json_encode($vector));
+
+    assertSameValue('validation_failed', $error->errorCode(), 'Top-level code is authoritative.');
+    assertSameValue(null, $error->field(), 'Request-level field comes only from the top level.');
+    assertSameValue('field_required', $error->errors()[0]['code'], 'Field errors remain available.');
 }
