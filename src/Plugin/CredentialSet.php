@@ -113,7 +113,7 @@ final class CredentialSet
         $host = strtolower((string) $parts['host']);
         $port = isset($parts['port']) ? (int) $parts['port'] : null;
         return $scheme === 'https'
-            && in_array($host, array('api.paymos.io', 'api-dev.paymos.io'), true)
+            && $host === 'api.paymos.io'
             && ($port === null || $port === 443);
     }
 

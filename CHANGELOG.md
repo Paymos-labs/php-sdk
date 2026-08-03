@@ -6,6 +6,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The public release history also lives at [paymos.io/changelog](https://paymos.io/changelog).
 
+## [1.3.0] - 2026-08-03
+
+- feat: finalize CMS integration and localization tooling
+
 ## [1.2.1] - 2026-08-02
 
 - fix(ecosystem): recover SDK releases

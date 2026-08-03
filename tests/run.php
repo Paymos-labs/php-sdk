@@ -19,6 +19,7 @@ $tests = array(
     __DIR__ . '/Exception/ApiExceptionTest.php',
     __DIR__ . '/Plugin/StatusMapperTest.php',
     __DIR__ . '/Plugin/AmountGuardTest.php',
+    __DIR__ . '/Plugin/CredentialSetTest.php',
     __DIR__ . '/Plugin/InvoiceReverseVerifierTest.php',
     __DIR__ . '/Plugin/InvoiceReconcilerTest.php',
     __DIR__ . '/Connect/DeviceConnectClientTest.php',
