@@ -37,6 +37,18 @@ function test_shared_conformance_request_signing_vectors()
         ),
         'PHP SDK must match the shared GET signing vector.'
     );
+
+    // An absent body signs an EMPTY last segment, never sha256("") — and this vector is a POST,
+    // so an SDK that shortcuts on the method ("only GET is empty") fails here.
+    $empty = $vectors['post_empty_body_signing'];
+    assertSameValue(
+        $empty['authorization'],
+        RequestSigner::authorizationHeader(
+            $empty['api_key'], $empty['api_secret'], $empty['timestamp'], $empty['method'],
+            $empty['path'], $empty['query'], $empty['body']
+        ),
+        'PHP SDK must match the shared empty-body POST signing vector.'
+    );
 }
 
 function test_shared_conformance_rotated_webhook_vector()
