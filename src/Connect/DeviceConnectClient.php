@@ -38,14 +38,22 @@ final class DeviceConnectClient
     }
 
     /**
+     * @param string|null $returnUrl Admin page to send the merchant back to after approval.
+     *                               Paymos honours it only when it shares an origin with the
+     *                               approved store URL, so an unusable value is simply dropped.
      * @return array<string, mixed>
      */
-    public function start($cms, $sourceUrl)
+    public function start($cms, $sourceUrl, $returnUrl = null)
     {
         $cms = trim((string) $cms);
         $sourceUrl = rtrim(trim((string) $sourceUrl), '/');
         if ($cms === '' || !$this->isHttpsUrl($sourceUrl)) {
             throw new \InvalidArgumentException('Paymos CMS and HTTPS store URL are required.');
+        }
+
+        $returnUrl = trim((string) $returnUrl);
+        if ($returnUrl !== '' && !$this->isHttpsUrl($returnUrl)) {
+            $returnUrl = '';
         }
 
         $response = $this->formRequest('/connect/cms/device', array(
@@ -68,6 +76,9 @@ final class DeviceConnectClient
         $verificationUrl .= $separator
             . 'cms=' . rawurlencode($cms)
             . '&source_url=' . rawurlencode($sourceUrl);
+        if ($returnUrl !== '') {
+            $verificationUrl .= '&return_url=' . rawurlencode($returnUrl);
+        }
 
         return array(
             'device_code' => (string) $payload['device_code'],
