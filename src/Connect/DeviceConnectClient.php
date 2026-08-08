@@ -133,7 +133,18 @@ final class DeviceConnectClient
             return array('status' => $error);
         }
 
-        throw new \RuntimeException('Paymos connection failed.');
+        // Pass the server's own reason through. Swallowing it turns an actionable
+        // message — "Maximum 10 webhook endpoints per environment reached", say —
+        // into "Paymos connection failed", and the merchant has nothing to act on.
+        $description = isset($payload['error_description']) && is_scalar($payload['error_description'])
+            ? trim((string) $payload['error_description'])
+            : '';
+
+        throw new \RuntimeException(
+            $description === ''
+                ? 'Paymos connection failed.'
+                : 'Paymos connection failed: ' . $description
+        );
     }
 
     private function formRequest($path, array $fields)
