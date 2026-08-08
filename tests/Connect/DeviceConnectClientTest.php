@@ -118,3 +118,28 @@ function test_device_connect_poll_preserves_pending_state()
 
     assertSameValue('authorization_pending', $result['status'], 'Pending authorization must be pollable, not exceptional.');
 }
+
+function test_device_connect_poll_surfaces_the_server_reason()
+{
+    // A terminal error carries the only text that tells the merchant what to do.
+    // Dropping it leaves them with a bare "connection failed" and no next step —
+    // which is exactly what a real store hit on the webhook-endpoint cap.
+    $transport = new MockTransport(array(new HttpResponse(400, json_encode(array(
+        'error' => 'temporarily_unavailable',
+        'error_description' => 'Maximum 10 webhook endpoints per environment reached.',
+    )), array())));
+    $client = new DeviceConnectClient('https://app.paymos.io', $transport);
+
+    $message = '';
+    try {
+        $client->poll('device-secret');
+    } catch (\RuntimeException $exception) {
+        $message = $exception->getMessage();
+    }
+
+    assertSameValue(
+        'Paymos connection failed: Maximum 10 webhook endpoints per environment reached.',
+        $message,
+        'A terminal connect error must carry the server description.'
+    );
+}
