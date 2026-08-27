@@ -2,6 +2,8 @@
 
 Official PHP SDK for the Paymos Merchant API. Accept USDT (11 chains: Tron, Ethereum, BSC, Polygon, Arbitrum, Optimism, TON, Avalanche, Solana, NEAR, Plasma) and USDC (10 chains: Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Solana, NEAR, Sui) — native settlement, no auto-conversion.
 
+Give each customer a static wallet — one permanent deposit address per network that never changes — and read every confirmed deposit from a resumable feed.
+
 This is the same SDK the [WooCommerce](https://github.com/paymos-labs/woocommerce), [WHMCS](https://github.com/paymos-labs/whmcs), and [OpenCart](https://github.com/paymos-labs/opencart) plugins use under the hood. Drop it into a custom PHP backend and you get the same HMAC signing, webhook verification, and retry logic the official plugins ship.
 
 - Documentation: [paymos.io/docs/server-sdks](https://paymos.io/docs/server-sdks)
@@ -18,7 +20,7 @@ This is the same SDK the [WooCommerce](https://github.com/paymos-labs/woocommerc
 A thin, dependency-free client for the public Paymos Merchant API (HMAC-SHA256 authentication, snake_case JSON, webhook signature verification).
 
 - PHP 7.4 / 8.x compatible
-- No Composer runtime dependencies (uses ext-curl, ext-hash, ext-json)
+- No Composer runtime dependencies (uses ext-curl, ext-hash, ext-json, ext-openssl)
 - Pluggable transport (cURL by default, mock for tests)
 - Built-in retry with exponential backoff and `Retry-After` support (429 on any method; 5xx only on idempotent methods)
 - Webhook signature verification with secret-rotation support, Stripe-style multi-signature grace period
@@ -223,10 +225,95 @@ foreach ($client->withdrawals()->iterate(array('status' => array('completed')), 
 
 ---
 
+## Payment channels
+
+A payment channel is one payer's own reusable set of deposit addresses — no
+per-order invoice, no expiry. The payer keeps the address; every confirmed
+deposit shows up in the feed.
+
+### Create a channel and read its rails
+
+```php
+$channel = $client->paymentChannels()->create(array(
+    'project_id'  => 'prj_xxxxxxxxxxxx',
+    'external_id' => 'customer_42',        // your own stable id for this payer
+));
+
+foreach ($channel['networks'] as $rail) {
+    if (!isset($rail['address'])) {
+        continue;                          // this rail has not provisioned yet
+    }
+
+    echo $rail['network'] . ' ' . $rail['address'] . PHP_EOL;
+
+    foreach ($rail['tokens'] as $token) {
+        $minimum = isset($token['minimum_deposit']) ? $token['minimum_deposit'] : null;
+        echo '  ' . $token['symbol'] . ' min: ' . ($minimum === null ? 'unavailable' : $minimum) . PHP_EOL;
+    }
+}
+```
+
+### Poll the deposit feed
+
+```php
+$feed = $client->paymentChannelDeposits()->readPage(array(
+    'cursor' => $savedCursor,              // omit (or null) on the very first poll
+    'limit'  => 100,
+));
+
+foreach ($feed['items'] as $deposit) {
+    $this->credit($deposit);               // idempotently, by $deposit['id']
+}
+
+$this->saveCursor($feed['next_cursor']);   // always present, even on an empty page
+```
+
+Four things that bite an integrator who guesses:
+
+- **Repeating the same `external_id` returns the same channel.** The pair
+  (`project_id`, `external_id`) is the idempotency key: a repeat answers `200`
+  with the channel that already exists instead of `201` with a duplicate. Both
+  responses are a channel, so you never inspect the status code — calling
+  `create()` on every checkout is safe, not a duplicate and not an error.
+- **A rail's `address` is absent until that rail finishes provisioning**, and
+  never changes once it appears. Absent means "not yet", not "no address" —
+  show the payer only the rails that already have one.
+- **An absent `minimum_deposit` means "we cannot quote a minimum right now"**,
+  not "there is no minimum". Treating absent as `0` is how a merchant accepts a
+  deposit that lands below the live minimum and is never credited.
+- **`next_cursor` is never empty** — not even on a page with no items. Store it
+  and resume from it on the next poll. Do **not** loop until it is null the way
+  `invoices()->iterate()` ends a list: the feed has no last page, so that loop
+  either spins forever or, worse, stops on the first quiet page and leaves the
+  merchant's reconciliation silently behind. `confirmed_from` is only the first
+  poll's lower bound — after that the stored cursor is the resume mechanism.
+
+`readPage()` deliberately has no `iterate()` companion for exactly that reason.
+`$feed['blocked']` appears only when one position could not be rendered; it
+carries `{deposit_id, reason}` and explains a stall rather than causing one, so
+log it — without it, being stuck looks exactly like a quiet day.
+
+### Block, unblock, simulate
+
+```php
+$client->paymentChannels()->block('pc_xxxxxxxxxxxx');    // returns the updated channel
+$client->paymentChannels()->unblock('pc_xxxxxxxxxxxx');
+
+// Sandbox only ('network' is required; stage defaults to 'confirmed'):
+$client->paymentChannels()->simulateDeposit('pc_xxxxxxxxxxxx', array(
+    'amount'   => '25.00',
+    'currency' => 'USDT',
+    'network'  => 'TRC20',
+));
+```
+
+---
+
 ## Idempotency
 
-Both `invoices.create` and `withdrawals.create` use the request's
-`external_order_id` as the idempotency key. Calling the same endpoint
+`invoices.create` and `withdrawals.create` use the request's
+`external_order_id` as the idempotency key; `paymentChannels.create` uses
+(`project_id`, `external_id`) the same way. Calling the same endpoint
 again with the same `external_order_id` returns the existing resource
 instead of creating a duplicate. Use `IdempotencyKey::externalOrderId('prefix')`
 to mint a UUID-v4 backed key:
@@ -372,6 +459,28 @@ final class WordPressEventStore implements EventStoreInterface
     }
 }
 ```
+
+### Payment-channel deposit events
+
+The three `payment_channel.deposit.*` events each carry the full deposit shape
+(the same snake_case array `paymentChannelDeposits()->get(...)` already
+returns) as `data`:
+
+```php
+$event = $processor->process($signature, $rawBody);
+
+if ($event['event_type'] === 'payment_channel.deposit.confirmed' && $event['data']['is_final']) {
+    $deposit = $event['data'];
+    credit($deposit['payment_channel_external_id'], $deposit['net']); // idempotent by $event['event_id']
+}
+```
+
+**`confirming` and `reorged` are advisory and may arrive out of order.** A
+`confirming` can land after the `confirmed` for the same deposit, and a
+`reorged` can be superseded by a later `confirmed`. Credit only on
+`payment_channel.deposit.confirmed` with `is_final` true, and never let an
+advisory event regress a deposit you already know is confirmed. Crediting on
+`confirming` releases goods against money a reorg can still take back.
 
 ---
 
@@ -568,7 +677,7 @@ print_r($transport->requests());  // captured method/url/headers/body
 | Component           | Version    |
 | ------------------- | ---------- |
 | PHP                 | 7.4 - 8.3+ |
-| Required extensions | curl, hash, json |
+| Required extensions | curl, hash, json, openssl |
 | API surface         | `/v1/*`    |
 
 The SDK uses no language features beyond PHP 7.4 syntax so it can be

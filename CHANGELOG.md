@@ -6,6 +6,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The public release history also lives at [paymos.io/changelog](https://paymos.io/changelog).
 
+## [Unreleased]
+
+## [1.4.0] - 2026-08-27
+
+- release: the changelog rot had a cause, and it was not the one I named
+- audit: the shipped plugin and SDK docs described a product we stopped shipping
+- docs(sdk): the READMEs say static wallets, not payment channels
+- feat(sdk): payment-channel webhooks and the flow in every README
+- feat(php-sdk): payment channels, and a feed reader that cannot stop early
+- feat(sdk-conformance): declare the payment-channel operations
+
 ## [1.3.2] - 2026-08-08
 
 - fix(sdk): let the merchant see why the connection was refused
