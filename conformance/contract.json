@@ -61,6 +61,18 @@
     ],
     "balances": [
       { "method": "GET", "path": "/v1/balances", "operation": "get" }
+    ],
+    "payment_channels": [
+      { "method": "POST", "path": "/v1/payment-channels", "operation": "create" },
+      { "method": "GET", "path": "/v1/payment-channels/{id}", "operation": "get" },
+      { "method": "GET", "path": "/v1/payment-channels", "operation": "list" },
+      { "method": "POST", "path": "/v1/payment-channels/{id}/block", "operation": "block" },
+      { "method": "POST", "path": "/v1/payment-channels/{id}/unblock", "operation": "unblock" },
+      { "method": "POST", "path": "/v1/sandbox/payment-channels/{id}/simulate-deposit", "operation": "simulate_deposit" }
+    ],
+    "payment_channel_deposits": [
+      { "method": "GET", "path": "/v1/payment-channel-deposits", "operation": "list" },
+      { "method": "GET", "path": "/v1/payment-channel-deposits/{id}", "operation": "get" }
     ]
   },
   "vectors": {

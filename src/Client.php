@@ -10,6 +10,8 @@ use Paymos\Http\RetryingTransport;
 use Paymos\Http\TransportInterface;
 use Paymos\Resources\Balances;
 use Paymos\Resources\Invoices;
+use Paymos\Resources\PaymentChannelDeposits;
+use Paymos\Resources\PaymentChannels;
 use Paymos\Resources\System;
 use Paymos\Resources\Withdrawals;
 
@@ -41,6 +43,17 @@ final class Client
     public function withdrawals()
     {
         return new Withdrawals($this->config, $this->transport, $this->clock);
+    }
+
+    public function paymentChannels()
+    {
+        return new PaymentChannels($this->config, $this->transport, $this->clock);
+    }
+
+    /** The confirmed-deposit FEED — one page per call, no iterator; see PaymentChannelDeposits. */
+    public function paymentChannelDeposits()
+    {
+        return new PaymentChannelDeposits($this->config, $this->transport, $this->clock);
     }
 
     public function balances()

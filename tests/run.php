@@ -14,6 +14,7 @@ $tests = array(
     __DIR__ . '/Webhook/MultiEnvironmentWebhookVerifierTest.php',
     __DIR__ . '/Resources/InvoicesResourceTest.php',
     __DIR__ . '/Resources/WithdrawalsResourceTest.php',
+    __DIR__ . '/Resources/PaymentChannelsResourceTest.php',
     __DIR__ . '/Resources/BalancesResourceTest.php',
     __DIR__ . '/Resources/SystemResourceTest.php',
     __DIR__ . '/Exception/ApiExceptionTest.php',
