@@ -96,11 +96,16 @@ on the hosted invoice page if not pre-locked):
 ```php
 use Paymos\IdempotencyKey;
 
+// Mint the key once per logical order and persist it BEFORE the first
+// call; every retry of this order must reuse the same value.
+$key = IdempotencyKey::externalOrderId('order');
+$this->saveOrderKey($key);
+
 $invoice = $client->invoices()->create(array(
     'project_id'         => 'prj_xxxxxxxxxxxx',
     'amount'             => '49.95',
     'currency'           => 'USD',                // fiat -> network unlocked
-    'external_order_id'  => IdempotencyKey::externalOrderId('order'),
+    'external_order_id'  => $key,
     // optional:
     // 'allow_multiple_payments' => false,
     // 'customer_fee_percent'    => 0,            // 0..100
@@ -323,6 +328,13 @@ use Paymos\IdempotencyKey;
 
 $key = IdempotencyKey::externalOrderId('wc');   // "wc_550e8400-e29b-41d4-a716-446655440000"
 ```
+
+The SDK never retries these POSTs for you, so an unknown outcome — timeout, dropped
+connection, crash after send — is resolved by calling again with the **same**
+`external_order_id`. Mint the key once per logical order, persist it before the first
+call, and reuse it for that order's lifetime. Generating a fresh key for a rerun of the
+same order bypasses idempotency and creates a second operation — for withdrawals, a
+second payout.
 
 ---
 
@@ -575,7 +587,8 @@ The HTTP status -> exception class mapping (see
 | Status                | Class                  |
 | --------------------- | ---------------------- |
 | 400                   | `ValidationException`  |
-| 401, 403              | `AuthException`        |
+| 401                   | `AuthException`        |
+| 403                   | `PermissionException`  |
 | 404                   | `NotFoundException`    |
 | 409                   | `ConflictException`    |
 | 410                   | `GoneException`        |
@@ -583,6 +596,26 @@ The HTTP status -> exception class mapping (see
 | 503                   | `UnavailableException` |
 | Other 5xx             | `ServerException`      |
 | Anything else         | `ApiException`         |
+
+### 401 and 403 are different problems
+
+A **401** means the credential is absent, malformed or unverifiable — fix the key or the signing
+clock, and stop retrying.
+
+A **403** means the credential was accepted and something else refused. It covers two very
+different situations:
+
+- **the key is wrong for this call** — `payout_key_required`, `payment_key_required`,
+  `forbidden`;
+- **the key is fine, the account or project state says no** — `whitelist_required`,
+  `merchant_suspended`, `widget_inactive`, `terminal_not_enabled`, `not_sandbox`.
+
+A customer entering a payout address that is not whitelisted yet is the second kind: nothing is
+wrong with your credentials, and paging the on-call engineer about them is the wrong move. Always
+switch on `errorCode()` before deciding what to do.
+
+`PermissionException` extends `AuthException`, so a catch block written before this split keeps
+catching 403.
 
 ### Retries
 
