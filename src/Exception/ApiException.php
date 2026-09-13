@@ -129,8 +129,10 @@ class ApiException extends \RuntimeException
         switch (true) {
             case $code === 400:
                 return new ValidationException($code, $responseBody, $headers);
-            case $code === 401 || $code === 403:
+            case $code === 401:
                 return new AuthException($code, $responseBody, $headers);
+            case $code === 403:
+                return new PermissionException($code, $responseBody, $headers);
             case $code === 404:
                 return new NotFoundException($code, $responseBody, $headers);
             case $code === 409:

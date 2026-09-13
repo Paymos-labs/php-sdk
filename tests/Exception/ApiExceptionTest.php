@@ -31,7 +31,7 @@ function test_api_exception_factory_maps_status_codes_to_subclasses()
 {
     $cases = array(
         array(401, 'AuthException'),
-        array(403, 'AuthException'),
+        array(403, 'PermissionException'),
         array(404, 'NotFoundException'),
         array(409, 'ConflictException'),
         array(410, 'GoneException'),
