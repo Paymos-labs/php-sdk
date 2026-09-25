@@ -472,6 +472,15 @@ final class WordPressEventStore implements EventStoreInterface
 }
 ```
 
+If your store holds a short in-flight lock and commits the event only after
+the order update succeeded, implement `CommitAwareEventStoreInterface` as well
+(`isCommitted($eventId)`). The verifier then tells the two "already seen" cases
+apart: a committed event throws `DuplicateEventException` (answer 2xx), an
+event still locked by an unfinished delivery throws `EventInProgressException`
+(answer non-2xx, e.g. 409). Paymos gives each delivery 10 seconds and retries;
+acknowledging a retry that lands while the first attempt is still running would
+mark the event delivered even if that attempt then fails.
+
 ### Payment-channel deposit events
 
 The three `payment_channel.deposit.*` events each carry the full deposit shape

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Paymos\Webhook;
 
 use Paymos\Exception\DuplicateEventException;
+use Paymos\Exception\EventInProgressException;
 
 final class WebhookEventProcessor
 {
@@ -39,9 +40,25 @@ final class WebhookEventProcessor
         }
 
         if (!$this->eventStore->remember($event['event_id'], $this->dedupTtlSeconds)) {
-            throw new DuplicateEventException('Webhook event has already been processed: ' . $event['event_id']);
+            self::throwSeen($this->eventStore, $event['event_id']);
         }
 
         return $event;
+    }
+
+    /**
+     * remember() said "seen". A store that can tell is asked whether the event
+     * was committed; one still locked by an unfinished delivery is not a
+     * duplicate and must not be acknowledged (see EventInProgressException).
+     *
+     * @param string $eventId
+     */
+    private static function throwSeen(EventStoreInterface $store, $eventId)
+    {
+        if ($store instanceof CommitAwareEventStoreInterface && !$store->isCommitted($eventId)) {
+            throw new EventInProgressException('Webhook event is still being processed by another delivery: ' . $eventId);
+        }
+
+        throw new DuplicateEventException('Webhook event has already been processed: ' . $eventId);
     }
 }

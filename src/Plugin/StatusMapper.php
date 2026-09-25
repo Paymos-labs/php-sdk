@@ -168,6 +168,28 @@ final class StatusMapper
     }
 
     /**
+     * Whether an invoice status is final.
+     *
+     * Server source: Invoice.TerminalStatuses — paid, paid_over, underpaid,
+     * expired, cancelled — and the domain refuses every transition out of them.
+     * So once a plugin has recorded one of these for an invoice, any later event
+     * for that same invoice is an out-of-order redelivery (webhooks are
+     * at-least-once and unordered) and must not move the order again: a stale
+     * underpaid_waiting after underpaid would otherwise reopen a failed order.
+     *
+     * @param string|null $status Invoice status as the API spells it.
+     * @return bool
+     */
+    public static function isFinalStatus($status)
+    {
+        return in_array(self::invoiceAction('', $status), array(
+            self::ACTION_PAYMENT_COMPLETE,
+            self::ACTION_FAIL_ORDER,
+            self::ACTION_CANCEL_ORDER,
+        ), true);
+    }
+
+    /**
      * Map a withdrawal webhook event to the action a plugin should take.
      *
      * @param string      $eventType Lowercase event type from the webhook payload.
