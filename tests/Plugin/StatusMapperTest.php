@@ -92,3 +92,15 @@ function test_status_mapper_precise_invoice_action_uses_status_fallback()
     assertSameValue(StatusMapper::ACTION_CANCEL_ORDER, StatusMapper::invoiceAction('', 'cancelled'), 'status fallback cancelled cancels order.');
     assertSameValue(StatusMapper::ACTION_IGNORE, StatusMapper::invoiceAction('', 'unknown'), 'unknown status fallback is ignored.');
 }
+
+function test_status_mapper_final_statuses_are_exactly_the_five_terminal_ones()
+{
+    // Server source: Invoice.TerminalStatuses — Paid, PaidOver, Underpaid,
+    // Expired, Cancelled. Nothing transitions out of them.
+    foreach (array('paid', 'paid_over', 'underpaid', 'expired', 'cancelled', 'PAID') as $status) {
+        assertSameValue(true, StatusMapper::isFinalStatus($status), $status . ' must be final.');
+    }
+    foreach (array('awaiting_client', 'awaiting_payment', 'confirming', 'underpaid_waiting', '', 'created', 'confirmed', null) as $status) {
+        assertSameValue(false, StatusMapper::isFinalStatus($status), var_export($status, true) . ' must not be final.');
+    }
+}

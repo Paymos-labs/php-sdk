@@ -8,6 +8,20 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-09-25
+
+- fix(woocommerce): BUG-163 второй счёт не выпускается, пока сервер держит первый открытым
+- fix(plugins): BUG-103 вебхук, который ещё обрабатывается, больше не отвечается 200 «duplicate»
+- fix(plugins): BUG-090 оплата больше не ведёт на истёкший или проваленный счёт Paymos
+- fix(plugins): BUG-135 поздний нефинальный вебхук больше не оживляет проваленный или отменённый заказ
+
+- **403 is no longer reported as an authentication failure.** `PermissionException` (extends `AuthException`, so existing catch blocks keep working) now carries every 403. `AuthException` is no longer `final` for that reason.
+- **Base URL must use HTTPS.** Plain HTTP is accepted only against a loopback host, which is what a local integration test points at. The API secret signs every request, so a plaintext base URL put that credential on the wire.
+- **`StatusMapper::isFinalStatus()`.** Answers whether an invoice status is one of the five the server never transitions out of (`paid`, `paid_over`, `underpaid`, `expired`, `cancelled`), so a plugin can recognise an event that arrives after a final one as an out-of-order redelivery.
+- **`InvoiceRenewal::isRequired()`.** Tells a plugin when an order needs a new invoice instead of the one already cut: the invoice ended unpaid (`underpaid`, `expired`, `cancelled`) or nobody started it before its `expires_at`. A paid invoice never needs one. The server answers a repeated `external_order_id` with the existing invoice whatever its state, so without this check a returning buyer is sent to an expired checkout.
+- **`InvoiceRenewal::isRequired()` allows for clock skew.** An unstarted invoice counts as past its deadline only once `expires_at` is `InvoiceRenewal::CLOCK_SKEW_SECONDS` (300, the webhook timestamp tolerance) behind the caller's clock: the deadline is the server's, and until it passes there the buyer can still pick a network and pay. The deadline is not fixed at creation — confirming a network moves it to `now + PaymentTtl` and sends no webhook — so an `expires_at` a plugin stored is a reason to read the invoice back from the server, never to replace it.
+- **An event still being processed is no longer reported as a duplicate.** `remember()` answers false both for an event already committed and for one only locked by a delivery that has not finished, and both became `DuplicateEventException` — which plugins answer 200. Paymos gives a delivery 10 seconds and retries, so a retry landing while the first attempt was still running was acknowledged, and the event was lost if that attempt then failed. A store implementing the new `CommitAwareEventStoreInterface` (`isCommitted()`) now gets `EventInProgressException` for the second case, to be answered non-2xx.
+
 ## [1.4.1] - 2026-09-13
 
 - fix(sdk-conformance): восемь копий контракта разошлись с каноном — 403 снова permission

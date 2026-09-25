@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Paymos\Webhook;
 
 use Paymos\Exception\DuplicateEventException;
+use Paymos\Exception\EventInProgressException;
 use Paymos\Exception\SignatureMismatchException;
 use Paymos\Exception\TimestampSkewException;
 
@@ -74,7 +75,7 @@ final class MultiEnvironmentWebhookVerifier
             }
 
             if (!$this->eventStore->remember($match->event()->id(), $this->dedupTtlSeconds)) {
-                throw new DuplicateEventException('Webhook event has already been processed: ' . $match->event()->id());
+                self::throwSeen($this->eventStore, $match->event()->id());
             }
 
             return $match;
@@ -85,5 +86,21 @@ final class MultiEnvironmentWebhookVerifier
         }
 
         throw new SignatureMismatchException('Webhook signature does not match any configured environment.');
+    }
+
+    /**
+     * remember() said "seen". A store that can tell is asked whether the event
+     * was committed; one still locked by an unfinished delivery is not a
+     * duplicate and must not be acknowledged (see EventInProgressException).
+     *
+     * @param string $eventId
+     */
+    private static function throwSeen(EventStoreInterface $store, $eventId)
+    {
+        if ($store instanceof CommitAwareEventStoreInterface && !$store->isCommitted($eventId)) {
+            throw new EventInProgressException('Webhook event is still being processed by another delivery: ' . $eventId);
+        }
+
+        throw new DuplicateEventException('Webhook event has already been processed: ' . $eventId);
     }
 }
