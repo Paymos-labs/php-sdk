@@ -59,6 +59,7 @@ final class StatusMapper
     private const EVT_WITHDRAWAL_COMPLETED = 'withdrawal.completed';
     private const EVT_WITHDRAWAL_FAILED = 'withdrawal.failed';
     private const EVT_WITHDRAWAL_CANCELLED = 'withdrawal.cancelled';
+    private const EVT_WITHDRAWAL_COMPLETION_REWOUND = 'withdrawal.completion_rewound';
 
     /**
      * Map an invoice webhook event to the action a plugin should take.
@@ -212,6 +213,10 @@ final class StatusMapper
                 return self::ACTION_CANCELLED;
             case self::EVT_WITHDRAWAL_CREATED:
                 return self::ACTION_IGNORE;
+            // A completed payout was reorg-rewound back to signed: the money is in motion again, the
+            // order must leave its completed state and follow the payout until it re-completes or fails.
+            case self::EVT_WITHDRAWAL_COMPLETION_REWOUND:
+                return self::ACTION_PROCESSING;
         }
 
         // Legacy `status`-based fallback.
