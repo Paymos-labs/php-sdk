@@ -57,6 +57,7 @@ function test_status_mapper_withdrawal_events()
     assertSameValue(StatusMapper::ACTION_CANCELLED,  StatusMapper::withdrawalAction('withdrawal.cancelled'),  'withdrawal.cancelled → cancelled');
     assertSameValue(StatusMapper::ACTION_FAILED,     StatusMapper::withdrawalAction('withdrawal.failed'),     'withdrawal.failed → failed');
     assertSameValue(StatusMapper::ACTION_IGNORE,     StatusMapper::withdrawalAction('withdrawal.created'),    'withdrawal.created → ignore (informational)');
+    assertSameValue(StatusMapper::ACTION_PROCESSING, StatusMapper::withdrawalAction('withdrawal.completion_rewound'), 'completion_rewound → processing (reorg rewind, back in flight)');
 }
 
 function test_status_mapper_withdrawal_unknown_and_legacy()
