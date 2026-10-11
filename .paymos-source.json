@@ -1,6 +1,6 @@
 {
   "source_repository": "shockk73/paymos",
   "source_path": "plugins/php-sdk",
-  "source_commit": "f30fca2059a6c6bd2d775ed6a71fbf57e61951e7",
-  "version": "1.5.0"
+  "source_commit": "d97d421188a0b77700bf61bf2d05e59c6af7e71a",
+  "version": "1.6.0"
 }

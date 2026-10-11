@@ -33,10 +33,13 @@ final class StatusMapper
     public const ACTION_CANCEL_ORDER = 'cancel_order';
     public const ACTION_FAIL_ORDER = 'fail_order';
     public const ACTION_MANUAL_REVIEW = 'manual_review';
+    // invoice-late-payment: money crossed the invoice's total after it had already closed. The order
+    // keeps its terminal decision — the plugin adds an order NOTE, nothing else.
+    public const ACTION_NOTE_PAID_LATE = 'note_paid_late';
 
     // ── Invoice event types ─────────────────────────────────────────────────
 
-    // Server source: Paymos.Domain.Invoices.InvoiceEventTypes (exactly 8 events).
+    // Server source: Paymos.Domain.Invoices.InvoiceEventTypes (9 events).
     // There is NO invoice.created / invoice.token_selected — the server never
     // emits them (the AwaitingClient->AwaitingPayment confirm is silent).
     //
@@ -51,6 +54,9 @@ final class StatusMapper
     private const EVT_INVOICE_UNDERPAID = 'invoice.underpaid';
     private const EVT_INVOICE_EXPIRED = 'invoice.expired';
     private const EVT_INVOICE_CANCELLED = 'invoice.cancelled';
+    // invoice-late-payment: the late fact on an already-terminal invoice (status stays expired/
+    // underpaid; data.paid_late_at carries the mark's Unix time).
+    private const EVT_INVOICE_PAID_LATE = 'invoice.paid_late';
 
     // ── Withdrawal event types ──────────────────────────────────────────────
 
@@ -130,6 +136,12 @@ final class StatusMapper
         $status = strtolower((string) $status);
 
         switch ($eventType) {
+            // invoice-late-payment: the invoice got its money after closing. NOT an order state
+            // change — a note, decided before the status fallback so the terminal status carried
+            // beside it (expired/underpaid) cannot be re-applied as a cancel/fail.
+            case self::EVT_INVOICE_PAID_LATE:
+                return self::ACTION_NOTE_PAID_LATE;
+
             // Reorg regression — a previously-counted payment vanished on-chain;
             // pull the order back to "awaiting payment".
             case self::EVT_INVOICE_AWAITING_PAYMENT:

@@ -67,6 +67,19 @@ final class WebhookEvent
         return $this->stringAt(array('data', 'status'));
     }
 
+    /**
+     * invoice-late-payment: the late-payment fact's timestamp (Unix seconds), or null when the
+     * invoice was never paid late (and absent entirely in payloads serialized before the field
+     * existed — legacy fixtures stay readable either way).
+     *
+     * @return int|null
+     */
+    public function paidLateAt()
+    {
+        $value = $this->valueAt(array('data', 'paid_late_at'));
+        return is_int($value) ? $value : (is_numeric($value) ? (int) $value : null);
+    }
+
     public function externalOrderId()
     {
         return $this->stringAt(array('data', 'order', 'external_id'));
