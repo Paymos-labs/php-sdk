@@ -12,7 +12,7 @@ final class Invoices extends BaseResource
     private const SANDBOX_PATH = '/v1/sandbox/invoices';
 
     /** Valid sandbox simulation stages accepted by the server. */
-    private const SIMULATE_STAGES = array('paid', 'overpaid', 'underpay', 'cancel');
+    private const SIMULATE_STAGES = array('paid', 'overpaid', 'underpay', 'cancel', 'paid_late');
 
     private const LIST_FILTERS = array(
         'cursor', 'created_from', 'created_to', 'external_order_id',
@@ -151,7 +151,7 @@ final class Invoices extends BaseResource
      * to sandbox keys (Env=Sandbox).
      *
      * @param string $invoiceId Prefixed id (e.g. "inv_…").
-     * @param string $stage     One of: paid | overpaid | underpay | cancel.
+     * @param string $stage     One of: paid | overpaid | underpay | cancel | paid_late.
      * @return array            InvoiceStatusContract.
      */
     public function simulatePayment($invoiceId, $stage)
