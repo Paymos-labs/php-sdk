@@ -22,9 +22,34 @@ function test_amount_guard_treats_leading_zeros_as_equal()
         'leading zeros must not cause a false amount mismatch.'
     );
     assertTrueValue(
-        AmountGuard::isSafeToComplete('0050', 'EUR', '50', 'EUR'),
+        AmountGuard::isSafeToComplete('0050', 'EUR', '50', 'EUR', '50', 'EUR'),
         'leading zeros on a whole-number amount must compare equal.'
     );
+}
+
+function test_amount_guard_fails_closed_on_missing_invalid_or_nonpositive_payment_evidence()
+{
+    foreach (array('', 'abc', '0', '-1', '1e2', array('100'), true, null) as $invalid) {
+        assertFalseValue(AmountGuard::isSafeToComplete($invalid, 'USD', '100', 'USD', '100', 'USD'), 'invoice evidence must be a positive decimal.');
+        assertFalseValue(AmountGuard::isSafeToComplete('100', 'USD', $invalid, 'USD', '100', 'USD'), 'current order must be a positive decimal.');
+        assertFalseValue(AmountGuard::isSafeToComplete('100', 'USD', '100', 'USD', $invalid, 'USD'), 'event evidence must be a positive decimal.');
+    }
+    assertFalseValue(AmountGuard::isSafeToComplete('', '', '100', 'USD', '50', 'USD'), 'missing snapshot must never authorize an underpaid order.');
+    assertFalseValue(AmountGuard::isSafeToComplete('100', 'USD', '100', 'USD'), 'missing event amount/currency must fail closed.');
+    assertFalseValue(AmountGuard::isSafeToComplete('100', '', '100', 'USD', '100', 'USD'), 'missing currency must fail closed.');
+}
+
+function test_amount_guard_exact_decimal_contract_is_independent_of_bcmath()
+{
+    assertFalseValue(AmountGuard::amountsEqual('1.000000001', '1.000000002'), 'fractional digits beyond scale eight matter.');
+    assertFalseValue(AmountGuard::amountsEqual('33.104', '33.10'), 'KWD precision must not be rounded away.');
+    foreach (array('abc', '', '1e2', '1,00', '1..0', array(), true, null) as $invalid) {
+        assertFalseValue(AmountGuard::amountsEqual($invalid, $invalid), 'identical invalid values are not valid amounts.');
+    }
+    foreach (array(array('+0050.000', '50'), array('-.5000', '-0.5'), array('-000.00', '0'), array('1.', '1')) as $pair) {
+        assertSameValue($pair[1], AmountGuard::normalizeDecimal($pair[0]), 'canonical decimal must preserve its exact value.');
+        assertTrueValue(AmountGuard::amountsEqual($pair[0], $pair[1]), 'harmless decimal formatting must compare equal.');
+    }
 }
 
 function test_amount_guard_still_blocks_genuinely_different_amounts()
