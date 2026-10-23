@@ -14,29 +14,19 @@ final class AmountGuard
         $eventOrderAmount = '',
         $eventOrderCurrency = ''
     ) {
-        $invoiceAmount = trim((string) $invoiceAmount);
-        $invoiceCurrency = strtoupper(trim((string) $invoiceCurrency));
-
-        if ($invoiceAmount === '' || $invoiceCurrency === '') {
-            return true;
-        }
-
-        if (!self::amountsEqual($invoiceAmount, $currentOrderAmount)
-            || $invoiceCurrency !== strtoupper(trim((string) $currentOrderCurrency))) {
+        $amount = self::normalizeDecimal($invoiceAmount);
+        if ($amount === null || $amount === '0' || $amount[0] === '-') {
             return false;
         }
-
-        $eventOrderAmount = trim((string) $eventOrderAmount);
-        if ($eventOrderAmount !== '' && !self::amountsEqual($eventOrderAmount, $invoiceAmount)) {
-            return false;
+        foreach (array($invoiceCurrency, $currentOrderCurrency, $eventOrderCurrency) as $currency) {
+            if (!is_string($currency) || trim($currency) === '') {
+                return false;
+            }
         }
-
-        $eventOrderCurrency = trim((string) $eventOrderCurrency);
-        if ($eventOrderCurrency !== '' && strtoupper($eventOrderCurrency) !== $invoiceCurrency) {
-            return false;
-        }
-
-        return true;
+        return self::amountsEqual($amount, $currentOrderAmount)
+            && self::amountsEqual($amount, $eventOrderAmount)
+            && strtoupper(trim($invoiceCurrency)) === strtoupper(trim($currentOrderCurrency))
+            && strtoupper(trim($invoiceCurrency)) === strtoupper(trim($eventOrderCurrency));
     }
 
     public static function mismatchSummary(
@@ -59,49 +49,29 @@ final class AmountGuard
     }
 
     /**
-     * Decimal-safe equality for two money strings. Prefers bcmath (exact,
-     * scale 8 — covers every Paymos amount precision); falls back to comparing
-     * fully canonicalized strings when ext-bcmath is unavailable.
-     *
-     * Both paths treat "50", "50.00", "050.00", "+50" and "50.0" as equal —
-     * leading zeros, a leading "+", and trailing fractional zeros are all
-     * insignificant. The earlier normalizer trimmed only trailing zeros and a
-     * leading "+", so "50.00" vs "050.00" was a false mismatch that pushed a
-     * legitimately-paid order into manual review.
+     * Exact equality without a precision limit or an optional-extension branch.
      */
     public static function amountsEqual($a, $b)
     {
-        $a = trim((string) $a);
-        $b = trim((string) $b);
+        $normalized = self::normalizeDecimal($a);
+        return $normalized !== null && $normalized === self::normalizeDecimal($b);
+    }
 
-        if (function_exists('bccomp') && self::isNumericAmount($a) && self::isNumericAmount($b)) {
-            return bccomp($a, $b, 8) === 0;
+    /**
+     * Canonical plain decimal; invalid input never becomes payment evidence.
+     * Callers should pass money as strings: a float may already have lost precision.
+     *
+     * @param mixed $amount
+     * @return string|null
+     */
+    public static function normalizeDecimal($amount)
+    {
+        if (!is_string($amount) && !is_int($amount) && !is_float($amount)) {
+            return null;
         }
-
-        return self::normalizeAmount($a) === self::normalizeAmount($b);
-    }
-
-    /**
-     * Whether a string is a plain decimal amount bcmath can compare safely
-     * (optional sign, digits, optional single fractional part). Guards against
-     * feeding bccomp junk like "" or "abc", which it would silently read as 0.
-     */
-    private static function isNumericAmount($value)
-    {
-        return (bool) preg_match('/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/', (string) $value);
-    }
-
-    /**
-     * Canonical form for fallback string comparison: strip a leading "+",
-     * insignificant leading zeros in the integer part, and trailing zeros in the
-     * fractional part (then a dangling dot). "050.00" → "50", "50.0" → "50",
-     * ".5" → "0.5", "" → "".
-     */
-    private static function normalizeAmount($amount)
-    {
         $value = trim((string) $amount);
-        if ($value === '') {
-            return '';
+        if (!preg_match('/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/D', $value)) {
+            return null;
         }
 
         $sign = '';
