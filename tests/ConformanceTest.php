@@ -61,6 +61,33 @@ function test_shared_conformance_rotated_webhook_vector()
     );
 }
 
+function test_shared_conformance_signed_ton_webhook_raw_and_friendly_v1_preserve_fields()
+{
+    $fixtures = sdk_contract()['vectors']['ton_webhooks'];
+    assertSameValue(8, count($fixtures['vectors']), 'All raw and friendly schema 1 TON event cases must be present.');
+    $verifier = new WebhookVerifier($fixtures['secret']);
+    foreach ($fixtures['vectors'] as $vector) {
+        $event = $verifier->decodeVerifiedPayload($vector['header'], $vector['raw_body'], $fixtures['now']);
+        assertSameValue($vector['event_id'], $event['event_id'], $vector['name']);
+        assertSameValue($vector['event_type'], $event['event_type'], $vector['name']);
+        assertSameValue(1, $vector['version'], $vector['name']);
+        assertSameValue($vector['version'], $event['version'], $vector['name']);
+        assertSameValue($fixtures['now'], $event['occurred_at'], $vector['name']);
+        foreach ($vector['expect'] as $expected) {
+            $value = $event['data'];
+            foreach ($expected['path'] as $key) {
+                if (!is_array($value) || !array_key_exists($key, $value)) {
+                    throw new RuntimeException('Missing signed webhook field in ' . $vector['name']);
+                }
+                $value = $value[$key];
+            }
+            assertSameValue($expected['value'], $value, $vector['name']);
+        }
+        assertFalseValue($verifier->verify($vector['header'], $vector['raw_body'] . ' ', $fixtures['now']),
+            'Even a JSON-valid byte change must invalidate the signature.');
+    }
+}
+
 function test_shared_conformance_problem_details_uses_top_level_code()
 {
     $vector = sdk_contract()['vectors']['problem_details']['multi'];

@@ -107,6 +107,47 @@ function test_device_connect_poll_returns_validated_hmac_credentials()
     assertSameValue('connected', $result['status'], 'Successful poll must finish the connection.');
     assertSameValue('sk_test_123', $result['credentials']['sandbox']['api_secret'], 'Existing sandbox secret must be returned.');
     assertSameValue('whsec_live', $result['credentials']['live']['webhook_secret'], 'Live CMS webhook secret must be returned.');
+    foreach (array('sandbox', 'live') as $environment) {
+        assertSameValue(array(), $result['credentials'][$environment]['capabilities'], 'Old Connect responses must default to no capabilities.');
+        assertSameValue(null, $result['credentials'][$environment]['refund_contract_version'], 'Old Connect responses must default to no refund contract version.');
+        assertSameValue(false, $result['credentials'][$environment]['refunds_enabled'], 'Old Connect responses must default to a closed create gate.');
+    }
+}
+
+function test_device_connect_poll_preserves_refund_capabilities_per_environment()
+{
+    $environments = array();
+    foreach (array('sandbox' => 'test', 'live' => 'live') as $environment => $prefix) {
+        $environments[$environment] = array(
+            'base_url' => 'https://api.paymos.io',
+            'api_key' => 'pk_' . $prefix . '_123',
+            'api_secret' => 'sk_' . $prefix . '_123',
+            'project_id' => 'prj_123',
+            'webhook_secret' => 'whsec_' . $prefix,
+            'capabilities' => array('invoice_refunds_v1'),
+            'refund_contract_version' => 1,
+            'refunds_enabled' => $environment === 'sandbox',
+        );
+    }
+    $transport = new MockTransport(array(new HttpResponse(200, json_encode(array(
+        'access_token' => 'discard-me',
+        'token_type' => 'Bearer',
+        'paymos_config' => array(
+            'schema' => 1,
+            'plugin' => 'woocommerce',
+            'source_url' => 'https://shop.example',
+            'environments' => $environments,
+        ),
+    )), array())));
+    $client = new DeviceConnectClient('https://app.paymos.io', $transport);
+
+    $result = $client->poll('device-secret');
+
+    assertSameValue('connected', $result['status'], 'The refund handshake must keep Connect successful.');
+    assertSameValue('woocommerce', $result['plugin'], 'The connected plugin must be retained.');
+    assertSameValue('https://shop.example', $result['source_url'], 'The connected store URL must be retained.');
+    assertSameValue($environments, $result['credentials'], 'Connect must preserve all credentials and the independent environment create gates.');
+    assertFalseValue(isset($result['access_token']), 'The bootstrap access token must still be discarded.');
 }
 
 function test_device_connect_poll_preserves_pending_state()

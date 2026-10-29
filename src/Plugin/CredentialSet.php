@@ -13,7 +13,7 @@ final class CredentialSet
 
     /**
      * @param array<string, mixed> $source
-     * @return array<string, array<string, string>>
+     * @return array<string, array<string, mixed>>
      */
     public static function normalize(array $source)
     {
@@ -42,7 +42,7 @@ final class CredentialSet
     /**
      * @param string $environment
      * @param array<string, mixed> $values
-     * @return array<string, string>
+     * @return array<string, mixed>
      */
     public static function normalizeEnvironment($environment, array $values)
     {
@@ -56,6 +56,13 @@ final class CredentialSet
             'api_secret' => self::scalar($values, 'api_secret'),
             'project_id' => self::scalar($values, 'project_id'),
             'webhook_secret' => self::scalar($values, 'webhook_secret'),
+            'capabilities' => isset($values['capabilities']) && is_array($values['capabilities'])
+                ? array_values(array_filter($values['capabilities'], 'is_string'))
+                : array(),
+            'refund_contract_version' => isset($values['refund_contract_version']) && is_int($values['refund_contract_version'])
+                ? $values['refund_contract_version']
+                : null,
+            'refunds_enabled' => self::refundsEnabled($values),
         );
         if ($result['base_url'] === '') {
             $result['base_url'] = self::DEFAULT_BASE_URL;
@@ -89,6 +96,26 @@ final class CredentialSet
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     * @param string $capability
+     * @return bool
+     */
+    public static function hasCapability(array $values, $capability)
+    {
+        return isset($values['capabilities']) && is_array($values['capabilities'])
+            && in_array($capability, $values['capabilities'], true);
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     * @return bool
+     */
+    public static function refundsEnabled(array $values)
+    {
+        return isset($values['refunds_enabled']) && $values['refunds_enabled'] === true;
     }
 
     private static function isAllowedBaseUrl($value)
