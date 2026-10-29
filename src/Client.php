@@ -12,6 +12,7 @@ use Paymos\Resources\Balances;
 use Paymos\Resources\Invoices;
 use Paymos\Resources\PaymentChannelDeposits;
 use Paymos\Resources\PaymentChannels;
+use Paymos\Resources\Refunds;
 use Paymos\Resources\System;
 use Paymos\Resources\Withdrawals;
 
@@ -43,6 +44,11 @@ final class Client
     public function withdrawals()
     {
         return new Withdrawals($this->config, $this->transport, $this->clock);
+    }
+
+    public function refunds(): Refunds
+    {
+        return new Refunds($this->config, $this->transport, $this->clock);
     }
 
     public function paymentChannels()
