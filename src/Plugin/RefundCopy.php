@@ -1,0 +1,291 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Paymos\Plugin;
+
+/** Authored copy: merchant-refunds/evidence/takeover-copy/selected.json. */
+final class RefundCopy
+{
+    private const MESSAGES = [
+        'en' => [
+            'full_action' => 'Refund remaining payment',
+            'overpayment_action' => 'Refund overpayment',
+            'requested' => 'Refund requested. You can track its progress here.',
+            'pending' => 'The refund is still in progress. Its status will update here.',
+            'full_completed' => 'The full refund is complete. The order is now marked as refunded.',
+            'overpayment_completed' => 'The excess crypto has been refunded. The order remains paid.',
+            'failed' => 'The refund failed. Check its details before trying again.',
+            'cancelled' => 'The refund was cancelled.',
+            'review' => 'This refund needs manual review. Check its details before taking further action.',
+            'unknown' => 'The refund outcome is not confirmed yet. Keep this request and do not create another.',
+            'reconnect' => 'To request refunds, reconnect Paymos in the module settings.',
+            'unavailable' => 'Refunds are unavailable for this order.',
+            'history_title' => 'Refund history',
+            'cash_note' => 'Only the excess crypto was refunded. The order remains paid.',
+            'mail_template_label' => 'Full refund email template',
+            'mail_template_help' => 'Leave empty to send no email. A selected template is sent once after the full refund is confirmed complete, never for an overpayment refund.',
+            'edd_upgrade' => 'Requesting refunds requires Easy Digital Downloads 3.3 or later. Update it before requesting a refund.',
+            'request_failed' => 'The refund request could not be confirmed. Check the refund history before trying again.',
+            'order_label' => 'Order',
+            'mode_label' => 'Refund type',
+            'amount_label' => 'Refund amount',
+            'recipient_label' => 'Recipient',
+            'order_total_label' => 'Original order total',
+            'operation_label' => 'Refund operation',
+            'record_label' => 'Financial record',
+            'review_label' => 'Manual review',
+            'check_action' => 'Check refund status',
+            'external_label' => 'Refund from Paymos dashboard/API',
+            'full_cash_completed' => 'The full crypto refund is complete.',
+            'first_sender_label' => 'First confirmed deposit sender',
+            'full_mode' => 'Full refund',
+            'overpayment_mode' => 'Overpayment refund',
+            'load_action' => 'Show refunds',
+            'protected_action_required' => 'Use the Paymos refund controls on this order. Refunds through the standard order controls are blocked.',
+            'access_denied' => 'You do not have permission to manage refunds.',
+            'history_preserved' => 'This module cannot be uninstalled while any refund history remains.',
+            'order_id_label' => 'Order number',
+            'history_prevents_disconnect' => 'Paymos cannot be disconnected while refund history remains. The connection is needed to check refund records and reconcile their status.',
+        ],
+        'ru' => [
+            'full_action' => 'Вернуть остаток платежа',
+            'overpayment_action' => 'Вернуть переплату',
+            'requested' => 'Запрос на возврат принят. Следить за ним можно здесь.',
+            'pending' => 'Возврат ещё выполняется. Его статус обновится здесь.',
+            'full_completed' => 'Полный возврат завершён. Заказ отмечен как возвращённый.',
+            'overpayment_completed' => 'Переплата в криптовалюте возвращена. Заказ остаётся оплаченным.',
+            'failed' => 'Возврат не выполнен. Проверьте подробности, прежде чем пробовать снова.',
+            'cancelled' => 'Возврат отменён.',
+            'review' => 'Этот возврат нужно проверить вручную. Посмотрите подробности, прежде чем продолжать.',
+            'unknown' => 'Результат возврата пока не подтверждён. Дождитесь обновления этого запроса, не создавайте новый.',
+            'reconnect' => 'Чтобы запрашивать возвраты, заново подключите Paymos в настройках модуля.',
+            'unavailable' => 'Для этого заказа возврат недоступен.',
+            'history_title' => 'История возвратов',
+            'cash_note' => 'Возвращена только переплата в криптовалюте. Заказ остаётся оплаченным.',
+            'mail_template_label' => 'Шаблон письма о полном возврате',
+            'mail_template_help' => 'Оставьте поле пустым, чтобы не отправлять письмо. Выбранный шаблон отправляется один раз после подтверждения полного возврата. При возврате переплаты письмо не отправляется.',
+            'edd_upgrade' => 'Для запроса возврата нужна Easy Digital Downloads 3.3 или новее. Обновите её, прежде чем запрашивать возврат.',
+            'request_failed' => 'Не удалось подтвердить запрос на возврат. Проверьте историю возвратов, прежде чем пробовать снова.',
+            'order_label' => 'Заказ',
+            'mode_label' => 'Вид возврата',
+            'amount_label' => 'Сумма возврата',
+            'recipient_label' => 'Получатель',
+            'order_total_label' => 'Исходная сумма заказа',
+            'operation_label' => 'Операция возврата',
+            'record_label' => 'Финансовая запись',
+            'review_label' => 'Ручная проверка',
+            'check_action' => 'Проверить статус возврата',
+            'external_label' => 'Возврат через кабинет/API Paymos',
+            'full_cash_completed' => 'Полный возврат криптовалюты завершён.',
+            'first_sender_label' => 'Отправитель первого подтверждённого перевода',
+            'full_mode' => 'Полный возврат',
+            'overpayment_mode' => 'Возврат переплаты',
+            'load_action' => 'Показать возвраты',
+            'protected_action_required' => 'Для возврата используйте кнопки Paymos в заказе. Возврат через стандартные кнопки заказа заблокирован.',
+            'access_denied' => 'У вас нет прав на управление возвратами.',
+            'history_preserved' => 'Модуль нельзя удалить, пока в нём есть история возвратов.',
+            'order_id_label' => 'Номер заказа',
+            'history_prevents_disconnect' => 'Paymos нельзя отключить, пока есть история возвратов. Подключение нужно для просмотра записей и сверки статусов.',
+        ],
+        'de' => [
+            'full_action' => 'Restzahlung erstatten',
+            'overpayment_action' => 'Überzahlung erstatten',
+            'requested' => 'Die Erstattung wurde angefordert. Den Fortschritt sehen Sie hier.',
+            'pending' => 'Die Erstattung läuft noch. Der Status wird hier aktualisiert.',
+            'full_completed' => 'Die vollständige Erstattung ist abgeschlossen. Die Bestellung ist jetzt als erstattet markiert.',
+            'overpayment_completed' => 'Der überschüssige Kryptobetrag wurde erstattet. Die Bestellung bleibt bezahlt.',
+            'failed' => 'Die Erstattung ist fehlgeschlagen. Prüfen Sie die Details vor einem erneuten Versuch.',
+            'cancelled' => 'Die Erstattung wurde abgebrochen.',
+            'review' => 'Diese Erstattung muss manuell geprüft werden. Sehen Sie sich die Details an, bevor Sie fortfahren.',
+            'unknown' => 'Das Ergebnis steht noch nicht fest. Warten Sie auf die Aktualisierung dieser Anfrage und erstellen Sie keine weitere.',
+            'reconnect' => 'Verbinden Sie Paymos in den Moduleinstellungen erneut, um Erstattungen anzufordern.',
+            'unavailable' => 'Für diese Bestellung sind keine Erstattungen verfügbar.',
+            'history_title' => 'Bisherige Erstattungen',
+            'cash_note' => 'Nur der überschüssige Kryptobetrag wurde erstattet. Die Bestellung bleibt bezahlt.',
+            'mail_template_label' => 'E-Mail-Vorlage für vollständige Erstattungen',
+            'mail_template_help' => 'Ohne Auswahl wird keine E-Mail gesendet. Die gewählte Vorlage wird einmal nach bestätigtem Abschluss der vollständigen Erstattung versendet, nie bei einer Überzahlungserstattung.',
+            'edd_upgrade' => 'Erstattungsanfragen benötigen Easy Digital Downloads 3.3 oder neuer. Aktualisieren Sie die Erweiterung, bevor Sie eine Erstattung anfordern.',
+            'request_failed' => 'Die Erstattungsanfrage konnte nicht bestätigt werden. Prüfen Sie vor einem erneuten Versuch die bisherigen Erstattungen.',
+            'order_label' => 'Bestellung',
+            'mode_label' => 'Erstattungsart',
+            'amount_label' => 'Erstattungsbetrag',
+            'recipient_label' => 'Empfänger',
+            'order_total_label' => 'Ursprünglicher Bestellbetrag',
+            'operation_label' => 'Erstattungsvorgang',
+            'record_label' => 'Finanzbuchung',
+            'review_label' => 'Manuelle Prüfung',
+            'check_action' => 'Erstattungsstatus prüfen',
+            'external_label' => 'Erstattung über Paymos-Dashboard/API',
+            'full_cash_completed' => 'Der vollständige Kryptobetrag wurde erstattet.',
+            'first_sender_label' => 'Absender der ersten bestätigten Einzahlung',
+            'full_mode' => 'Vollständige Erstattung',
+            'overpayment_mode' => 'Erstattung der Überzahlung',
+            'load_action' => 'Erstattungen anzeigen',
+            'protected_action_required' => 'Nutzen Sie die Paymos-Erstattungsfunktionen dieser Bestellung. Erstattungen über die Standardfunktionen der Bestellung sind gesperrt.',
+            'access_denied' => 'Sie haben keine Berechtigung, Erstattungen zu verwalten.',
+            'history_preserved' => 'Das Modul kann nicht deinstalliert werden, solange ein Erstattungsverlauf vorhanden ist.',
+            'order_id_label' => 'Bestellnummer',
+            'history_prevents_disconnect' => 'Paymos kann nicht getrennt werden, solange ein Erstattungsverlauf vorhanden ist. Die Verbindung wird zum Lesen der Einträge und Statusabgleich benötigt.',
+        ],
+        'es' => [
+            'full_action' => 'Reembolsar pago restante',
+            'overpayment_action' => 'Reembolsar el exceso',
+            'requested' => 'Se ha solicitado el reembolso. Puedes seguir su progreso aquí.',
+            'pending' => 'El reembolso sigue en curso. Su estado se actualizará aquí.',
+            'full_completed' => 'El reembolso completo ha terminado. El pedido figura como reembolsado.',
+            'overpayment_completed' => 'Se ha reembolsado el exceso de criptomonedas. El pedido sigue pagado.',
+            'failed' => 'El reembolso ha fallado. Revisa los detalles antes de volver a intentarlo.',
+            'cancelled' => 'El reembolso se ha cancelado.',
+            'review' => 'Este reembolso necesita una revisión manual. Consulta los detalles antes de continuar.',
+            'unknown' => 'El resultado aún no está confirmado. Espera a que se actualice esta solicitud y no crees otra.',
+            'reconnect' => 'Para solicitar reembolsos, vuelve a conectar Paymos en los ajustes del módulo.',
+            'unavailable' => 'Este pedido no admite reembolsos.',
+            'history_title' => 'Historial de reembolsos',
+            'cash_note' => 'Solo se ha reembolsado el exceso de criptomonedas. El pedido sigue pagado.',
+            'mail_template_label' => 'Plantilla de correo del reembolso completo',
+            'mail_template_help' => 'Déjalo vacío para no enviar correo. La plantilla elegida se envía una vez tras confirmar el reembolso completo, nunca al reembolsar un exceso de pago.',
+            'edd_upgrade' => 'Para solicitar reembolsos necesitas Easy Digital Downloads 3.3 o posterior. Actualízalo antes de solicitar un reembolso.',
+            'request_failed' => 'No se ha podido confirmar la solicitud. Revisa el historial de reembolsos antes de volver a intentarlo.',
+            'order_label' => 'Pedido',
+            'mode_label' => 'Tipo de reembolso',
+            'amount_label' => 'Importe del reembolso',
+            'recipient_label' => 'Destinatario',
+            'order_total_label' => 'Total original del pedido',
+            'operation_label' => 'Operación de reembolso',
+            'record_label' => 'Registro financiero',
+            'review_label' => 'Revisión manual',
+            'check_action' => 'Consultar estado del reembolso',
+            'external_label' => 'Reembolso desde Paymos: panel/API',
+            'full_cash_completed' => 'El reembolso completo en criptomonedas ha terminado.',
+            'first_sender_label' => 'Remitente del primer ingreso confirmado',
+            'full_mode' => 'Reembolso completo',
+            'overpayment_mode' => 'Reembolso del exceso',
+            'load_action' => 'Mostrar reembolsos',
+            'protected_action_required' => 'Usa los controles de reembolso de Paymos en este pedido. Los controles habituales del pedido están bloqueados para reembolsos.',
+            'access_denied' => 'No tienes permiso para gestionar reembolsos.',
+            'history_preserved' => 'No puedes desinstalar el módulo mientras conserve algún historial de reembolsos.',
+            'order_id_label' => 'Número de pedido',
+            'history_prevents_disconnect' => 'No puedes desconectar Paymos mientras haya historial de reembolsos. La conexión permite consultar los registros y comprobar sus estados.',
+        ],
+        'tr' => [
+            'full_action' => 'Kalan ödemeyi iade et',
+            'overpayment_action' => 'Fazla ödemeyi iade et',
+            'requested' => 'İade talebi alındı. Durumunu buradan takip edebilirsiniz.',
+            'pending' => 'İade henüz tamamlanmadı. Durumu burada güncellenecek.',
+            'full_completed' => 'Tam iade tamamlandı. Sipariş artık iade edildi olarak işaretli.',
+            'overpayment_completed' => 'Fazla kripto tutarı iade edildi. Sipariş ödenmiş olarak kalır.',
+            'failed' => 'İade başarısız oldu. Yeniden denemeden önce ayrıntıları kontrol edin.',
+            'cancelled' => 'İade iptal edildi.',
+            'review' => 'Bu iadenin elle kontrol edilmesi gerekiyor. Devam etmeden önce ayrıntılara bakın.',
+            'unknown' => 'İadenin sonucu henüz doğrulanmadı. Bu talebin güncellenmesini bekleyin, yeni talep oluşturmayın.',
+            'reconnect' => 'İade talep etmek için modül ayarlarından Paymos\'u yeniden bağlayın.',
+            'unavailable' => 'Bu sipariş için iade yapılamıyor.',
+            'history_title' => 'İade geçmişi',
+            'cash_note' => 'Yalnızca fazla kripto tutarı iade edildi. Sipariş ödenmiş olarak kalır.',
+            'mail_template_label' => 'Tam iade e-posta şablonu',
+            'mail_template_help' => 'Boş bırakırsanız e-posta gönderilmez. Seçilen şablon, tam iadenin tamamlandığı doğrulandıktan sonra bir kez gönderilir. Fazla ödeme iadesinde gönderilmez.',
+            'edd_upgrade' => 'İade talebi için Easy Digital Downloads 3.3 veya üzeri gerekir. İade talep etmeden önce güncelleyin.',
+            'request_failed' => 'İade talebi doğrulanamadı. Yeniden denemeden önce iade geçmişini kontrol edin.',
+            'order_label' => 'Sipariş',
+            'mode_label' => 'İade türü',
+            'amount_label' => 'İade tutarı',
+            'recipient_label' => 'Alıcı',
+            'order_total_label' => 'İlk sipariş toplamı',
+            'operation_label' => 'İade işlemi',
+            'record_label' => 'Mali kayıt',
+            'review_label' => 'Elle kontrol',
+            'check_action' => 'İade durumunu kontrol et',
+            'external_label' => 'Paymos panelinden/API\'den başlatılan iade',
+            'full_cash_completed' => 'Kripto tutarının tamamı iade edildi.',
+            'first_sender_label' => 'İlk onaylı ödemenin göndericisi',
+            'full_mode' => 'Tam iade',
+            'overpayment_mode' => 'Fazla ödeme iadesi',
+            'load_action' => 'İadeleri göster',
+            'protected_action_required' => 'Bu siparişteki Paymos iade düğmelerini kullanın. Standart sipariş düğmeleriyle iade yapılamaz.',
+            'access_denied' => 'İadeleri yönetme yetkiniz yok.',
+            'history_preserved' => 'İade geçmişi bulunduğu sürece modül kaldırılamaz.',
+            'order_id_label' => 'Sipariş numarası',
+            'history_prevents_disconnect' => 'İade geçmişi bulunduğu sürece Paymos bağlantısı kesilemez. Kayıtları okumak ve durumlarını karşılaştırmak için bağlantı gerekir.',
+        ],
+        'zh' => [
+            'full_action' => '退还剩余付款',
+            'overpayment_action' => '退还多付款',
+            'requested' => '退款申请已提交，可在此查看进度。',
+            'pending' => '退款尚未完成，状态会在此更新。',
+            'full_completed' => '全额退款已完成，订单已标记为已退款。',
+            'overpayment_completed' => '多付的加密货币已退还，订单仍为已付款。',
+            'failed' => '退款失败。请先查看详情，再重试。',
+            'cancelled' => '退款已取消。',
+            'review' => '这笔退款需要人工核查。请先查看详情，再继续操作。',
+            'unknown' => '退款结果尚未确认。请等待此申请更新，不要再次申请。',
+            'reconnect' => '如需申请退款，请在模块设置中重新连接 Paymos。',
+            'unavailable' => '此订单暂时无法退款。',
+            'history_title' => '退款记录',
+            'cash_note' => '仅退还了多付的加密货币，订单仍为已付款。',
+            'mail_template_label' => '全额退款邮件模板',
+            'mail_template_help' => '留空则不发邮件。确认全额退款完成后，所选模板只发送一次。退还多付款时不发送。',
+            'edd_upgrade' => '申请退款需要 Easy Digital Downloads 3.3 或更高版本，请先更新。',
+            'request_failed' => '暂时无法确认退款申请。请先查看退款记录，再重试。',
+            'order_label' => '订单',
+            'mode_label' => '退款类型',
+            'amount_label' => '退款金额',
+            'recipient_label' => '收款方',
+            'order_total_label' => '原订单总额',
+            'operation_label' => '退款操作',
+            'record_label' => '财务记录',
+            'review_label' => '人工核查',
+            'check_action' => '查询退款状态',
+            'external_label' => 'Paymos 控制台/API 发起的退款',
+            'full_cash_completed' => '加密货币全额退款已完成。',
+            'first_sender_label' => '首笔已确认入款的发送方',
+            'full_mode' => '全额退款',
+            'overpayment_mode' => '多付款退款',
+            'load_action' => '查看退款',
+            'protected_action_required' => '请使用此订单中的 Paymos 退款按钮。订单的常规退款操作已禁用。',
+            'access_denied' => '你没有管理退款的权限。',
+            'history_preserved' => '只要还保留任何退款记录，就无法卸载此模块。',
+            'order_id_label' => '订单编号',
+            'history_prevents_disconnect' => '只要还有退款记录，就不能断开 Paymos 连接。读取记录和核对状态仍需此连接。',
+        ],
+    ];
+
+    public static function locale(string $locale): string
+    {
+        $value = strtolower(str_replace('_', '-', trim($locale)));
+        $aliases = ['english' => 'en', 'russian' => 'ru', 'german' => 'de', 'spanish' => 'es', 'turkish' => 'tr', 'chinese' => 'zh'];
+        $value = $aliases[$value] ?? explode('-', $value)[0];
+        return isset(self::MESSAGES[$value]) ? $value : 'en';
+    }
+
+    public static function text(string $key, string $locale = 'en'): string
+    {
+        $strings = self::MESSAGES[self::locale($locale)];
+        if (!isset($strings[$key])) { throw new \InvalidArgumentException('refund_copy_key_unknown'); }
+        return $strings[$key];
+    }
+
+    public static function labels(string $locale = 'en'): array
+    {
+        return self::MESSAGES[self::locale($locale)];
+    }
+
+    public static function state(string $cash, string $mode, string $projection, ?string $reason = null, string $locale = 'en', bool $nativeStatusChanged = true): string
+    {
+        if ($reason !== null || $projection === RefundStates::NATIVE_REVIEW) { return self::reason($reason ?? '', $locale); }
+        if ($cash === RefundStates::COMPLETED && $projection === RefundStates::PROJECTION_APPLIED) {
+            if ($mode === RefundStates::FULL && !$nativeStatusChanged) { return self::text('full_cash_completed', $locale); }
+            return self::text($mode === RefundStates::FULL ? 'full_completed' : 'overpayment_completed', $locale);
+        }
+        $keys = ['unknown' => 'unknown', 'failed' => 'failed', 'cancelled' => 'cancelled', 'review' => 'review'];
+        return self::text($keys[$cash] ?? 'pending', $locale);
+    }
+
+    public static function reason(string $reason, string $locale = 'en'): string
+    {
+        if (strpos($reason, 'reconnect') !== false || strpos($reason, 'capability') !== false || strpos($reason, 'contract_version') !== false) { return self::text('reconnect', $locale); }
+        if (strpos($reason, 'unknown') !== false || strpos($reason, 'timeout') !== false) { return self::text('unknown', $locale); }
+        if (strpos($reason, 'not_enabled') !== false || strpos($reason, 'unavailable') !== false || strpos($reason, 'not_eligible') !== false) { return self::text('unavailable', $locale); }
+        return self::text('review', $locale);
+    }
+}
