@@ -8,6 +8,10 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-30
+
+- fix(plugins): complete CMS refund release dependencies
+
 ## [1.7.0] - 2026-10-29
 
 - fix(php-sdk): remove unreachable refund replay guard
