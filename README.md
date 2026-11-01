@@ -107,7 +107,6 @@ $invoice = $client->invoices()->create(array(
     'currency'           => 'USD',                // fiat -> network unlocked
     'external_order_id'  => $key,
     // optional:
-    // 'allow_multiple_payments' => false,
     // 'customer_fee_percent'    => 0,            // 0..100
     // 'client_id'               => 'cust_42',
 ));
