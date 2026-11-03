@@ -30,15 +30,19 @@ final class Refunds extends BaseResource
         ));
     }
 
-    public function simulate(string $refundId, string $status): array
-    {
-        return $this->requestJson('POST', '/v1/sandbox/refunds/' . rawurlencode($refundId) . '/simulate',
-            array('status' => $status));
-    }
-
     public function get(string $refundId): array
     {
         return $this->requestJson('GET', self::PATH . '/' . rawurlencode($refundId));
+    }
+
+    /** Simulate a terminal Sandbox outcome using the same scoped Payment credential. */
+    public function simulate(string $refundId, string $status): array
+    {
+        if (trim($refundId) === '' || !in_array($status, array('completed', 'failed', 'cancelled'), true)) {
+            throw new \InvalidArgumentException('A refund ID and terminal simulation status are required.');
+        }
+        return $this->requestJson('POST', '/v1/sandbox/refunds/' . rawurlencode($refundId) . '/simulate',
+            array('status' => $status));
     }
 
     /** @return array{items: array, next_cursor: string|null} */
