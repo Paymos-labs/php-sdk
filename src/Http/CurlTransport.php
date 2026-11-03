@@ -50,13 +50,17 @@ final class CurlTransport implements TransportInterface
         $raw = curl_exec($curl);
         if ($raw === false) {
             $error = curl_error($curl);
+            if (\PHP_VERSION_ID < 80000) {
             curl_close($curl);
+        }
             throw new \RuntimeException('Paymos HTTP error: ' . $error);
         }
 
         $statusCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
         $headerSize = (int) curl_getinfo($curl, CURLINFO_HEADER_SIZE);
-        curl_close($curl);
+        if (\PHP_VERSION_ID < 80000) {
+            curl_close($curl);
+        }
 
         $rawHeaders = substr($raw, 0, $headerSize);
         $responseBody = substr($raw, $headerSize);
