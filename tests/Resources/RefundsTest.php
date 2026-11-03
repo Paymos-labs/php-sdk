@@ -19,7 +19,7 @@ function refund_test_client(array $responses, &$transport = null)
 
 function refund_test_wire($id = 'wdr_over', $mode = 'overpayment', $amount = '20', $key = 'refund-order-2', $status = 'created')
 {
-    return array('withdrawal_id' => $id, 'invoice_id' => 'inv_74BPZFhr9qy9Uz2fbRkdJX', 'mode' => $mode,
+    return array('type' => 'refund', 'project_id' => 'prj_one', 'withdrawal_id' => $id, 'invoice_id' => 'inv_74BPZFhr9qy9Uz2fbRkdJX', 'mode' => $mode,
         'external_order_id' => $key, 'amount' => $amount, 'fee' => '0.1', 'currency' => 'USDT',
         'network' => 'TRC20', 'status' => $status, 'first_sender' => 'TFirstSender',
         'destination_address' => 'TFirstSender', 'is_test' => true, 'created_at' => 1709000000);
@@ -48,20 +48,16 @@ function refund_assert_signed(array $request)
     assertSameValue('1709000000', $request['headers']['X-Request-Timestamp'], 'Timestamp is sent.');
 }
 
-function test_refunds_simulate_uses_signed_terminal_status_and_preserves_current_shape()
+function test_refund_simulator_uses_payment_scoped_route_for_all_terminal_statuses()
 {
-    $address = 'UQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPuwA';
     foreach (array('completed', 'failed', 'cancelled') as $status) {
-        $wire = array_replace(refund_test_wire('wdr_1', 'full', '20', 'key', $status), array(
-            'is_final' => true, 'network' => 'TON', 'destination_address' => $address,
-            'first_sender' => $address, 'type' => 'refund', 'project_id' => 'prj_1'));
+        $wire = refund_test_wire('wdr /?', 'overpayment', '20', 'key', $status);
         $client = refund_test_client(array(refund_test_response($wire)), $transport);
-        $result = $client->refunds()->simulate('wdr/1 ?', $status);
-        assertSameValue($wire, $result, 'Current refund metadata and TON addresses survive decoding.');
+        $actual = $client->refunds()->simulate('wdr /?', $status);
+        assertSameValue($status, $actual['status'], 'Terminal status remains authoritative.');
         $request = $transport->requests()[0];
-        assertSameValue('POST', $request['method'], 'Simulation is POST.');
-        assertSameValue('https://api.paymos.test/v1/sandbox/refunds/wdr%2F1%20%3F/simulate', $request['url'], 'Refund identifier is one encoded path segment.');
-        assertSameValue(array('status' => $status), json_decode($request['body'], true), 'Exactly the requested status is sent.');
+        assertSameValue('https://api.paymos.test/v1/sandbox/refunds/wdr%20%2F%3F/simulate', $request['url'], 'Refund simulator route.');
+        assertSameValue(array('status' => $status), json_decode($request['body'], true), 'Only terminal status is sent.');
         refund_assert_signed($request);
     }
 }

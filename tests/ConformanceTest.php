@@ -64,13 +64,12 @@ function test_shared_conformance_rotated_webhook_vector()
 function test_shared_conformance_signed_ton_webhook_raw_and_friendly_v1_preserve_fields()
 {
     $fixtures = sdk_contract()['vectors']['ton_webhooks'];
-    assertSameValue(8, count($fixtures['vectors']), 'All raw and friendly schema 1 TON event cases must be present.');
+    assertSameValue(16, count($fixtures['vectors']), 'All historical and new TON event cases must be present.');
     $verifier = new WebhookVerifier($fixtures['secret']);
     foreach ($fixtures['vectors'] as $vector) {
         $event = $verifier->decodeVerifiedPayload($vector['header'], $vector['raw_body'], $fixtures['now']);
         assertSameValue($vector['event_id'], $event['event_id'], $vector['name']);
         assertSameValue($vector['event_type'], $event['event_type'], $vector['name']);
-        assertSameValue(1, $vector['version'], $vector['name']);
         assertSameValue($vector['version'], $event['version'], $vector['name']);
         assertSameValue($fixtures['now'], $event['occurred_at'], $vector['name']);
         foreach ($vector['expect'] as $expected) {
