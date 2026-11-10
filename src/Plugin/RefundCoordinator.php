@@ -112,6 +112,11 @@ final class RefundCoordinator
         $initial = $intent->cashState() === RefundStates::NOT_SUBMITTED;
         if ($initial) {
             $reason = $this->projector->preflight($intent);
+            if ($reason === NativeRefundProjectorInterface::PREFLIGHT_RETRY) {
+                $this->store->recordState($intent->operationId(), RefundStates::NOT_SUBMITTED,
+                    RefundStates::PROJECTION_NONE, $reason);
+                return RefundStates::NOT_SUBMITTED;
+            }
             if ($reason !== null) {
                 $this->review($intent, $reason);
                 return RefundStates::REVIEW;

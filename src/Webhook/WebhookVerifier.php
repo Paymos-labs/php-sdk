@@ -75,7 +75,8 @@ final class WebhookVerifier
         $expected = hash_hmac('sha256', (string) $timestamp . '.' . (string) $rawBody, $this->secret);
 
         foreach ($signatures as $signature) {
-            if (hash_equals($expected, $signature)) {
+            if (preg_match('/\A[0-9a-fA-F]{64}\z/', $signature) === 1
+                && hash_equals($expected, strtolower($signature))) {
                 return;
             }
         }

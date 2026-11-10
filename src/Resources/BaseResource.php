@@ -7,6 +7,7 @@ namespace Paymos\Resources;
 use Paymos\ClientConfig;
 use Paymos\Exception\ApiException;
 use Paymos\Http\RequestSigner;
+use Paymos\Http\RetryingTransport;
 use Paymos\Http\TransportInterface;
 use Paymos\Version;
 
@@ -50,25 +51,29 @@ abstract class BaseResource
         // signature on any request that carries query parameters.
         $signedQuery = $query === '' ? '' : '?' . ltrim((string) $query, '?');
 
-        $timestamp = (string) call_user_func($this->clock);
-        $headers = array(
-            'Authorization' => RequestSigner::authorizationHeader(
-                $this->config->apiKey(),
-                $this->config->apiSecret(),
-                $timestamp,
-                $method,
-                $path,
-                $signedQuery,
-                $body
-            ),
-            'X-Request-Timestamp' => $timestamp,
-            'Content-Type' => 'application/json',
-            'Accept' => 'application/json',
-            'User-Agent' => 'paymos-php/' . Version::VERSION,
-        );
+        $headerFactory = function () use ($method, $path, $signedQuery, $body) {
+            $timestamp = (string) call_user_func($this->clock);
+            return array(
+                'Authorization' => RequestSigner::authorizationHeader(
+                    $this->config->apiKey(),
+                    $this->config->apiSecret(),
+                    $timestamp,
+                    $method,
+                    $path,
+                    $signedQuery,
+                    $body
+                ),
+                'X-Request-Timestamp' => $timestamp,
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+                'User-Agent' => 'paymos-php/' . Version::VERSION,
+            );
+        };
 
         $url = $this->config->baseUrl() . $path . $signedQuery;
-        $response = $this->transport->request($method, $url, $headers, $body, $this->config->timeoutSeconds());
+        $response = $this->transport instanceof RetryingTransport
+            ? $this->transport->requestWithHeaderFactory($method, $url, $headerFactory, $body, $this->config->timeoutSeconds())
+            : $this->transport->request($method, $url, $headerFactory(), $body, $this->config->timeoutSeconds());
 
         if ($response->statusCode() < 200 || $response->statusCode() >= 300) {
             throw ApiException::fromResponse(

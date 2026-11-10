@@ -4,6 +4,19 @@ declare(strict_types=1);
 
 use Paymos\Webhook\WebhookVerifier;
 
+function test_webhook_verifier_accepts_uppercase_and_mixed_case_hex()
+{
+    $timestamp = 1739281200;
+    $body = '{"event_id":"evt_case"}';
+    $signature = hash_hmac('sha256', $timestamp . '.' . $body, 'whsec_case');
+    $verifier = new WebhookVerifier('whsec_case');
+    foreach (array(strtoupper($signature), strtoupper(substr($signature, 0, 32)) . substr($signature, 32)) as $hex) {
+        assertTrueValue($verifier->verify('t=' . $timestamp . ',v1=' . $hex, $body, $timestamp), 'Hex case does not change signature bytes.');
+    }
+    assertFalseValue($verifier->verify('t=' . $timestamp . ',v1=' . strtoupper($signature), $body . ' ', $timestamp), 'Normalization cannot accept modified payload.');
+    assertFalseValue($verifier->verify('t=' . $timestamp . ',v1=' . strtoupper($signature) . '0', $body, $timestamp), 'Malformed length stays invalid.');
+}
+
 function test_webhook_verifier_accepts_valid_signature()
 {
     $secret = 'whsec_test_secret';

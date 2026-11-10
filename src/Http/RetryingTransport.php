@@ -20,11 +20,22 @@ final class RetryingTransport implements TransportInterface
 
     public function request($method, $url, array $headers, $body, $timeoutSeconds)
     {
+        return $this->requestWithHeaderFactory($method, $url, static function () use ($headers) {
+            return $headers;
+        }, $body, $timeoutSeconds);
+    }
+
+    /** Rebuild timestamp-dependent authentication immediately before each physical attempt. */
+    public function requestWithHeaderFactory($method, $url, callable $headerFactory, $body, $timeoutSeconds)
+    {
         $attempt = 0;
 
         do {
+            $headers = $this->inner instanceof self ? null : $headerFactory();
             try {
-                $response = $this->inner->request($method, $url, $headers, $body, $timeoutSeconds);
+                $response = $this->inner instanceof self
+                    ? $this->inner->requestWithHeaderFactory($method, $url, $headerFactory, $body, $timeoutSeconds)
+                    : $this->inner->request($method, $url, $headers, $body, $timeoutSeconds);
             } catch (\RuntimeException $error) {
                 if (!$this->policy->shouldRetryTransportError($method)
                     || $attempt >= $this->policy->maxRetries()) {

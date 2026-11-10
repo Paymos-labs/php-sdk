@@ -166,3 +166,44 @@ function test_retrying_transport_respects_retry_after_header()
     assertSameValue(200, $response->statusCode(), 'Retry-After case must return the success.');
     assertTrueValue($elapsed >= 0.9, 'Retry-After: 1 must delay the retry ~1s (got ' . round($elapsed, 3) . 's).');
 }
+
+function test_retrying_transport_refreshes_hmac_for_every_physical_attempt()
+{
+    foreach (array('GET_503', 'GET_transport', 'POST_429', 'nested_GET_503') as $scenario) {
+        $wire = new class($scenario) implements TransportInterface {
+            public $requests = array();
+            private $scenario;
+            public function __construct($scenario) { $this->scenario = $scenario; }
+            public function request($method, $url, array $headers, $body, $timeoutSeconds)
+            {
+                $this->requests[] = compact('method', 'url', 'headers', 'body');
+                if (count($this->requests) === 1) {
+                    if ($this->scenario === 'GET_transport') { throw new RuntimeException('read timeout'); }
+                    return new HttpResponse($this->scenario === 'POST_429' ? 429 : 503, '{}', array());
+                }
+                return new HttpResponse(200, '{"invoice_id":"inv_test"}', array());
+            }
+        };
+        $now = 1700000000;
+        $retrying = new RetryingTransport($wire, new RetryPolicy(1, 0));
+        if ($scenario === 'nested_GET_503') { $retrying = new RetryingTransport($retrying, new RetryPolicy(1, 0)); }
+        $client = new \Paymos\Client(new \Paymos\ClientConfig('pk_test', 'sk_test'), $retrying,
+            static function () use (&$now) { $current = $now; $now += 511; return $current; });
+        if ($scenario === 'POST_429') {
+            $client->invoices()->create(array('external_order_id' => 'stable-order', 'amount' => '10.25'));
+        } else {
+            $client->invoices()->get('inv_test');
+        }
+        assertSameValue(2, count($wire->requests), 'The failed physical attempt is retried.');
+        assertSameValue($wire->requests[0]['body'], $wire->requests[1]['body'], 'Retry preserves exact body/idempotency key.');
+        assertSameValue('1700000000', $wire->requests[0]['headers']['X-Request-Timestamp'], 'First timestamp.');
+        assertSameValue('1700000511', $wire->requests[1]['headers']['X-Request-Timestamp'], 'Retry refreshes expired timestamp.');
+        foreach ($wire->requests as $request) {
+            $timestamp = $request['headers']['X-Request-Timestamp'];
+            $payload = $timestamp . "\n" . $request['method'] . "\n" . parse_url($request['url'], PHP_URL_PATH)
+                . "\n\n" . ($request['body'] === '' ? '' : hash('sha256', $request['body']));
+            assertSameValue('HMAC-SHA256 pk_test:' . base64_encode(hash_hmac('sha256', $payload, 'sk_test', true)),
+                $request['headers']['Authorization'], 'HMAC is calculated from the timestamp and exact physical request.');
+        }
+    }
+}

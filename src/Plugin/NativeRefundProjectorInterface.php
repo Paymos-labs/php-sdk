@@ -6,9 +6,13 @@ namespace Paymos\Plugin;
 
 interface NativeRefundProjectorInterface
 {
+    /** Read unavailable before any cash POST: keep the saved intent retryable with the same key. */
+    public const PREFLIGHT_RETRY = 'refund_preflight_retry';
+
     /**
      * Fresh mapping, connection capability, full original paid total/refunded=0 and saved defaults.
      * Return a review reason on ambiguity/manual changes; null permits the first POST.
+     * Return PREFLIGHT_RETRY for a transient provider read failure before the first POST.
      * A replay of an unknown request must remain possible when new submissions are disabled.
      */
     public function preflight(RefundIntent $intent): ?string;

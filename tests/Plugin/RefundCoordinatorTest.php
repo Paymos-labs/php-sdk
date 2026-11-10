@@ -613,3 +613,19 @@ function test_refund_coordinator_not_submitted_reconcile_does_not_initiate_cash(
     assertSameValue('none', $coordinator->reconcile('over'), 'An unsolicited callback cannot submit a new intent.');
     assertSameValue(array(), $transport->requests, 'No provider POST on an unsubmitted intent.');
 }
+
+function test_refund_coordinator_transient_preflight_retries_same_saved_intent()
+{
+    $intent = coordinator_intent('full', 'full');
+    $wire = coordinator_wire($intent);
+    $coordinator = coordinator_fixture($intent, array_merge(array(refund_test_response($wire)), coordinator_reads($wire)), $store, $native, $transport);
+    $native->preflightReason = NativeRefundProjectorInterface::PREFLIGHT_RETRY;
+    assertSameValue('not_submitted', $coordinator->submit('full'), 'Read failure cannot imply a submitted cash operation or permanent conflict.');
+    assertSameValue('none', $store->getIntent('full')->projectionState(), 'Transient read does not require native review.');
+    assertSameValue(array(), $transport->requests, 'No cash request was attempted.');
+    $native->preflightReason = null;
+    assertSameValue('created', $coordinator->submit('full'), 'Recovery repeats preflight and submits the original intent.');
+    assertSameValue(2, $native->preflightCalls, 'Every initial submission revalidates the saved draft.');
+    assertSameValue($intent->externalOrderId(), json_decode($transport->requests[0]['body'], true)['external_order_id'], 'Recovery preserves the committed key.');
+    assertSameValue(1, count($store->db->rows), 'Recovery does not create another intent.');
+}

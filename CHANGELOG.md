@@ -8,6 +8,11 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-10
+
+- feat(notifications): rewrite all 71 email and 52 Telegram RU templates, lifecycle series, and R01-R34 audit fixes
+- docs(sdk): backfill published mirror changelogs across SDKs and MCP
+
 ## [1.9.1] - 2026-11-03
 
 - fix(plugins): use wp_add_inline_script, sanitize nonces before wp_verify_nonce, and guard curl_close on PHP 8+
