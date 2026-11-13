@@ -1,6 +1,6 @@
 {
   "source_repository": "Paymos-labs/paymos",
   "source_path": "plugins/php-sdk",
-  "source_commit": "f63eaecebe9f611e4eeb8b830cdbc2dca853e244",
-  "version": "1.10.0"
+  "source_commit": "186bcce2d4f686d3d44d80d110920def84f5bc9e",
+  "version": "1.10.1"
 }

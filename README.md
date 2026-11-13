@@ -266,7 +266,9 @@ $feed = $client->paymentChannelDeposits()->readPage(array(
 ));
 
 foreach ($feed['items'] as $deposit) {
-    $this->credit($deposit);               // idempotently, by $deposit['id']
+    $pdo->beginTransaction();
+    creditDeposit($pdo, $deposit);         // one credit per $deposit['id'], see below
+    $pdo->commit();
 }
 
 $this->saveCursor($feed['next_cursor']);   // always present, even on an empty page
@@ -372,10 +374,13 @@ use Paymos\Webhook\InMemoryEventStore;
 use Paymos\Webhook\WebhookEventProcessor;
 use Paymos\Webhook\WebhookVerifier;
 use Paymos\Exception\DuplicateEventException;
+use Paymos\Exception\EventInProgressException;
 use Paymos\Exception\SignatureMismatchException;
 use Paymos\Exception\TimestampSkewException;
 
 $verifier  = new WebhookVerifier('whsec_xxxxxxxxxxxx', 300);
+// InMemoryEventStore keeps nothing between requests; see the next section for a
+// durable store and for where the order update and the marker commit.
 $processor = new WebhookEventProcessor($verifier, new InMemoryEventStore());
 
 $signature = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
@@ -386,6 +391,9 @@ try {
     // $event === ['event_id' => '...', 'event_type' => '...', 'data' => [...], ...]
 } catch (DuplicateEventException $e) {
     http_response_code(200);  // already processed - ack
+    exit;
+} catch (EventInProgressException $e) {
+    http_response_code(409);  // another delivery is still processing it - Paymos retries
     exit;
 } catch (SignatureMismatchException $e) {
     http_response_code(401);
@@ -450,35 +458,119 @@ http_response_code(200);
 
 `InMemoryEventStore` resets on every PHP request - it is only
 useful inside one CLI process or for tests. In a real plugin (Laravel /
-WordPress / Symfony) implement `EventStoreInterface` against your
-database, Redis, or filesystem cache so `event_id` deduplication works
-across requests.
+WordPress / Symfony) implement `CommitAwareEventStoreInterface` against your
+database so `event_id` deduplication works across requests.
+
+`WebhookEventProcessor::process()` calls `remember()` **before** your code
+applies the event, so `remember()` is a claim, not a record of success. The
+store has to keep the two apart:
+
+- the claim is atomic - of two concurrent deliveries of one event exactly one
+  gets `true` (a unique key does this; a read followed by a write does not);
+- the event is marked committed in the same database transaction as the order
+  or balance change, and only when that change succeeded;
+- a failed attempt releases its claim, so the retry Paymos sends is processed.
+
+`isCommitted()` lets the processor answer a committed event with
+`DuplicateEventException` (answer 2xx) and a claimed but unfinished one with
+`EventInProgressException` (answer non-2xx, e.g. 409). Paymos gives each
+delivery 10 seconds and retries; acknowledging a retry that lands while the
+first attempt is still running would mark the event delivered even if that
+attempt then fails.
+
+A PDO store (PostgreSQL syntax):
 
 ```php
-use Paymos\Webhook\EventStoreInterface;
+use Paymos\Webhook\CommitAwareEventStoreInterface;
 
-final class WordPressEventStore implements EventStoreInterface
+// CREATE TABLE paymos_webhook_events (
+//     event_id   text    PRIMARY KEY,
+//     committed  boolean NOT NULL DEFAULT false,
+//     claimed_at bigint  NOT NULL
+// );
+// Delete committed rows older than the deduplication TTL (7 days by default)
+// from a periodic job.
+final class PdoEventStore implements CommitAwareEventStoreInterface
 {
+    // Longer than one delivery attempt. A claim older than this was left by a
+    // crashed attempt and may be taken over by the next delivery.
+    const CLAIM_SECONDS = 60;
+
+    private $pdo;
+
+    public function __construct(\PDO $pdo)
+    {
+        $this->pdo = $pdo;
+    }
+
     public function remember($eventId, $ttlSeconds)
     {
-        $key = 'paymos_evt_' . $eventId;
-        if (get_transient($key)) {
-            return false;
-        }
-        set_transient($key, 1, (int) $ttlSeconds);
-        return true;
+        $now = time();
+        $claim = $this->pdo->prepare(
+            'INSERT INTO paymos_webhook_events (event_id, committed, claimed_at) VALUES (?, false, ?)
+             ON CONFLICT (event_id) DO UPDATE SET claimed_at = EXCLUDED.claimed_at
+             WHERE paymos_webhook_events.committed = false
+               AND paymos_webhook_events.claimed_at < ?'
+        );
+        $claim->execute(array($eventId, $now, $now - self::CLAIM_SECONDS));
+
+        return $claim->rowCount() === 1;
+    }
+
+    public function isCommitted($eventId)
+    {
+        $read = $this->pdo->prepare('SELECT committed FROM paymos_webhook_events WHERE event_id = ?');
+        $read->execute(array($eventId));
+
+        return (bool) $read->fetchColumn();
+    }
+
+    // Call inside the transaction that applies the event.
+    public function commit($eventId)
+    {
+        $this->pdo->prepare('UPDATE paymos_webhook_events SET committed = true WHERE event_id = ?')
+            ->execute(array($eventId));
+    }
+
+    // Call after that transaction was rolled back.
+    public function release($eventId)
+    {
+        $this->pdo->prepare('DELETE FROM paymos_webhook_events WHERE event_id = ? AND committed = false')
+            ->execute(array($eventId));
     }
 }
 ```
 
-If your store holds a short in-flight lock and commits the event only after
-the order update succeeded, implement `CommitAwareEventStoreInterface` as well
-(`isCommitted($eventId)`). The verifier then tells the two "already seen" cases
-apart: a committed event throws `DuplicateEventException` (answer 2xx), an
-event still locked by an unfinished delivery throws `EventInProgressException`
-(answer non-2xx, e.g. 409). Paymos gives each delivery 10 seconds and retries;
-acknowledging a retry that lands while the first attempt is still running would
-mark the event delivered even if that attempt then fails.
+The handler commits the marker together with the effect:
+
+```php
+$store     = new PdoEventStore($pdo);
+$processor = new WebhookEventProcessor(new WebhookVerifier('whsec_xxxxxxxxxxxx', 300), $store);
+
+// ... process() and the catch blocks from "Verify and process" above ...
+
+$pdo->beginTransaction();
+try {
+    applyEvent($pdo, $event);             // your order / balance change, see below
+    $store->commit($event['event_id']);   // same connection, same transaction
+    $pdo->commit();
+} catch (\Throwable $e) {
+    $pdo->rollBack();
+    $store->release($event['event_id']);
+    http_response_code(500);              // Paymos retries the delivery
+    exit;
+}
+
+http_response_code(200);
+```
+
+`event_id` deduplicates **deliveries**, not payments. Paymos creates a separate
+event, with its own `event_id`, for every webhook endpoint subscribed to the
+event, and every later event about the same invoice or deposit has its own
+`event_id` too. `applyEvent()` therefore keys the money on the business
+identity: a guarded order transition for invoice events (only an unpaid order
+for `$event['data']['order']['external_id']` moves to paid), and the deposit
+`id` for deposit events (next section).
 
 ### Payment-channel deposit events
 
@@ -490,8 +582,34 @@ returns) as `data`:
 $event = $processor->process($signature, $rawBody);
 
 if ($event['event_type'] === 'payment_channel.deposit.confirmed' && $event['data']['is_final']) {
-    $deposit = $event['data'];
-    credit($deposit['payment_channel_external_id'], $deposit['net']); // idempotent by $event['event_id']
+    creditDeposit($pdo, $event['data']); // inside the handler's transaction above
+}
+```
+
+The feed and the deposit webhook report the same deposits, so both go through one
+`creditDeposit` keyed by the deposit's own `id` (`pcd_...`), never by `event_id`
+(`credited_deposits.deposit_id` is the primary key; PostgreSQL syntax):
+
+```php
+// Call inside a transaction: the webhook handler's, or one the feed poller opens.
+function creditDeposit(\PDO $pdo, array $deposit)
+{
+    if (!$deposit['is_final'] || $deposit['project_id'] !== MY_PROJECT_ID || $deposit['is_test'] !== MY_IS_TEST) {
+        return;
+    }
+
+    // A second delivery, a second endpoint's copy, or a re-read feed page
+    // inserts nothing, and the balance is not touched again.
+    $insert = $pdo->prepare(
+        'INSERT INTO credited_deposits (deposit_id, payer, amount) VALUES (?, ?, ?::numeric)
+         ON CONFLICT (deposit_id) DO NOTHING'
+    );
+    $insert->execute(array($deposit['id'], $deposit['payment_channel_external_id'], $deposit['net']));
+
+    if ($insert->rowCount() === 1) {
+        $pdo->prepare('UPDATE balances SET amount = amount + ?::numeric WHERE payer = ?')
+            ->execute(array($deposit['net'], $deposit['payment_channel_external_id']));
+    }
 }
 ```
 
