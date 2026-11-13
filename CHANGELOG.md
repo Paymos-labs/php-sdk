@@ -8,6 +8,10 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-11-13
+
+- merge: integrate Windows WIP onto origin/main (CMS binding, SDK preview, dashboard, plugins, specs)
+
 ## [1.10.1] - 2026-11-13
 
 - fix(plugins,publicweb): SDK webhook credit recipes, CMS recovery, redirects and CSP logs (audit 2026-11-13)

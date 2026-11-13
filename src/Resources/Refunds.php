@@ -16,8 +16,12 @@ final class Refunds extends BaseResource
         if (func_num_args() !== 3) {
             throw new \InvalidArgumentException('Refund create accepts only invoiceId, mode and externalOrderId.');
         }
-        if (trim($invoiceId) === '' || trim($externalOrderId) === '' || strlen($externalOrderId) > 200) {
-            throw new \InvalidArgumentException('Refund invoiceId and externalOrderId are required; key maximum is 200 bytes.');
+        // .NET string limits count UTF-16 code units, including two for astral characters.
+        $characters = preg_match_all('/./us', $externalOrderId);
+        $surrogatePairs = preg_match_all('/[\x{10000}-\x{10FFFF}]/u', $externalOrderId);
+        if (trim($invoiceId) === '' || trim($externalOrderId) === '' || $characters === false
+            || $surrogatePairs === false || $characters + $surrogatePairs > 200) {
+            throw new \InvalidArgumentException('Refund invoiceId and externalOrderId are required; key maximum is 200 UTF-16 code units.');
         }
         if (!in_array($mode, array('full', 'overpayment'), true)) {
             throw new \InvalidArgumentException('Refund mode must be full or overpayment.');

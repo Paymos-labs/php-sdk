@@ -230,3 +230,25 @@ function test_refunds_iterator_rejects_cursor_cycles()
     try { iterator_to_array($client->refunds()->iterate()); } catch (RuntimeException $error) { $threw = true; }
     assertTrueValue($threw, 'A broken cursor must not cause an endless read.');
 }
+
+function test_refunds_create_counts_utf16_code_units_for_external_order_id()
+{
+    $cyrillic200 = str_repeat("\xD1\x8F", 200); // 400 UTF-8 bytes, 200 UTF-16 code units
+    $astral200 = str_repeat("\xF0\x9F\x98\x80", 100); // 400 UTF-8 bytes, 200 UTF-16 code units
+    $wire1 = refund_test_wire('wdr_u1', 'full', '100', $cyrillic200);
+    $wire2 = refund_test_wire('wdr_u2', 'full', '100', $astral200);
+    $client = refund_test_client(array(refund_test_response($wire1, 201), refund_test_response($wire2, 201)), $transport);
+
+    assertSameValue($cyrillic200, $client->refunds()->create('inv_u', 'full', $cyrillic200)['external_order_id'],
+        '200 Cyrillic BMP characters fit the 200 UTF-16 limit.');
+    assertSameValue($astral200, $client->refunds()->create('inv_u', 'full', $astral200)['external_order_id'],
+        '100 astral characters equal 200 UTF-16 code units.');
+    assertSameValue(2, count($transport->requests()), 'Both valid UTF-16 boundary keys reach HTTP.');
+
+    foreach (array($cyrillic200 . "\xD1\x8F", $astral200 . "\xD1\x8F") as $tooLong) {
+        $threw = false;
+        try { $client->refunds()->create('inv_u', 'full', $tooLong); } catch (InvalidArgumentException $error) { $threw = true; }
+        assertTrueValue($threw, 'Keys exceeding 200 UTF-16 code units are rejected locally.');
+    }
+    assertSameValue(2, count($transport->requests()), 'Over-limit keys do not trigger HTTP.');
+}
