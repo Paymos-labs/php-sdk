@@ -1,6 +1,6 @@
 # Paymos PHP SDK — stablecoin payments client for PHP
 
-Official PHP SDK for the Paymos Merchant API. Accept USDT (11 chains: Tron, Ethereum, BSC, Polygon, Arbitrum, Optimism, TON, Avalanche, Solana, NEAR, Plasma) and USDC (10 chains: Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Solana, NEAR, Sui) — native settlement, no auto-conversion.
+Official PHP SDK (`1.11.0`, `Paymos\Version::VERSION`) for the Paymos Merchant API. Accept USDT (11 chains: Tron, Ethereum, BSC, Polygon, Arbitrum, Optimism, TON, Avalanche, Solana, NEAR, Plasma) and USDC (10 chains: Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Solana, NEAR, Sui) — native settlement, no auto-conversion.
 
 Give each customer a static wallet — one permanent deposit address per network that never changes — and read every confirmed deposit from a resumable feed.
 
@@ -128,6 +128,79 @@ $invoice = $client->invoices()->create(array(
     'external_order_id' => 'order-7f3c',
 ));
 ```
+
+### Product line items (`products[]`)
+
+Pass an optional `'products'` array (`1..50` items) in `$client->invoices()->create(...)` to display purchase context on hosted checkout, or omit `'products'` (or pass `null`) for a compatible `amount-only` invoice. Each item requires `'title'` (<= 200 Unicode scalar values), positive int32 `'quantity'`, and decimal string `'unit_amount'` (in the invoice currency); `'description'` (plain text, <= 2000 scalars) and `'image_url'` (HTTPS URL, <= 2048 scalars) are optional and should be omitted when absent or `null`.
+
+```php
+// 1-item invoice with optional description and image_url
+$singleInvoice = $client->invoices()->create(array(
+    'project_id'        => 'prj_xxxxxxxxxxxx',
+    'amount'            => '47.00',
+    'currency'          => 'USD',
+    'external_order_id' => 'order-product-single',
+    'products'          => array(
+        array(
+            'title'       => 'Studio Pro',
+            'description' => 'One-month access',
+            'image_url'   => 'https://shop.example/images/studio-pro.webp',
+            'quantity'    => 2,
+            'unit_amount' => '24.50',
+        ),
+    ),
+));
+
+// Multi-item cart including a minimal 3-field item (no description / image_url)
+$cartInvoice = $client->invoices()->create(array(
+    'project_id'        => 'prj_xxxxxxxxxxxx',
+    'amount'            => '59.00',
+    'currency'          => 'USD',
+    'external_order_id' => 'order-product-multi',
+    'products'          => array(
+        array(
+            'title'       => 'Studio Pro',
+            'description' => 'One-month access',
+            'image_url'   => 'https://shop.example/images/studio-pro.webp',
+            'quantity'    => 2,
+            'unit_amount' => '24.50',
+        ),
+        array(
+            'title'       => 'Priority Support',
+            'quantity'    => 1,
+            'unit_amount' => '12.00',
+        ),
+    ),
+));
+
+$orderProducts = isset($cartInvoice['order']['products']) && is_array($cartInvoice['order']['products'])
+    ? $cartInvoice['order']['products']
+    : array();
+foreach ($orderProducts as $item) {
+    echo $item['title'] . ' x' . $item['quantity'] . ' @ ' . $item['unit_amount'] . PHP_EOL;
+}
+```
+
+- **Authoritative `amount`:** `amount` is the exact order total and is never recomputed from `sum(quantity * unit_amount)`.
+- **First-success replay:** the first successful create freezes `order['products']` on the invoice. Replaying the same `external_order_id` with unchanged `(amount, currency, network)` returns HTTP 200 with the original invoice and `order['products']`, even if `products` changed; changing `(amount, currency, network)` throws `ConflictException` (`409 invoice_idempotency_conflict`). Legacy and `amount-only` invoices omit `order['products']`.
+- **Image/product fallback & webhooks:** invoice creation stores `image_url` without fetching it server-side; if the buyer's browser fails to load an image or an item omits `description`/`image_url`, checkout hides only the missing media/description and keeps payment active. Signed invoice webhooks omit `products`.
+
+### CMS cart normalization (`InvoicePresentation::normalizeProducts`)
+
+Since PHP SDK `1.11.0`, `Paymos\Plugin\InvoicePresentation::normalizeProducts(iterable $candidates): ?array` (and `InvoicePresentation::normalizeProduct`) implements the shared all-or-nothing cart normalization helper for PHP CMS integrations:
+
+```php
+use Paymos\Plugin\InvoicePresentation;
+
+$products = InvoicePresentation::normalizeProducts($orderCandidates);
+if ($products !== null) {
+    $payload['products'] = $products;
+}
+```
+
+- Strips HTML and NUL bytes from `title` and `description`, checks `1..50` items (`InvoicePresentation::MAX_ITEMS = 50`), positive int32 `quantity` (accepting `int` or positive integer `string`), and exact decimal string `unit_amount`.
+- Invalid, blank, or non-HTTPS `image_url` and blank `description` values are omitted from the individual item rather than rejecting the item.
+- If the cart has `0` items, `> 50` items, or any item fails required field validation (`title`, `quantity`, `unit_amount`), `normalizeProducts()` returns `null` so the integration falls back cleanly to an `amount-only` invoice instead of sending a partial cart.
 
 ### Get an invoice
 

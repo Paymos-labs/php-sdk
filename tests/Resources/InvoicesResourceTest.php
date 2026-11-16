@@ -7,6 +7,7 @@ use Paymos\ClientConfig;
 use Paymos\Http\MockTransport;
 use Paymos\Http\HttpResponse;
 use Paymos\Http\TransportInterface;
+use Paymos\Version;
 
 final class CapturingTransport implements TransportInterface
 {
@@ -167,4 +168,77 @@ function test_invoices_list_rejects_unknown_filter_locally()
         $threw = true;
     }
     assertTrueValue($threw, 'Invoice list must reject repeated scalar filters locally.');
+}
+
+function test_invoices_resource_passes_products_and_decodes_order_products()
+{
+    assertSameValue('1.11.0', Version::VERSION, 'PHP SDK Version::VERSION must be 1.11.0.');
+
+    $contract = json_decode((string) file_get_contents(__DIR__ . '/../../conformance/contract.json'), true);
+    $single = $contract['vectors']['invoices']['create_single_product'];
+    $multi = $contract['vectors']['invoices']['create_multi_product'];
+    $legacy = $contract['vectors']['invoices']['legacy_without_products'];
+    $nullProducts = $contract['vectors']['invoices']['null_products'];
+
+    $transport = new MockTransport(array(
+        new HttpResponse(201, (string) json_encode($single['response']), array()),
+        new HttpResponse(201, (string) json_encode($multi['response']), array()),
+        new HttpResponse(200, (string) json_encode($legacy['response']), array()),
+        new HttpResponse(200, (string) json_encode($nullProducts['response']), array()),
+    ));
+    $client = new Client(
+        new ClientConfig('pk_test_key', 'sk_test_secret', 'https://api.paymos.io', 30),
+        $transport,
+        static function () { return 1709000000; }
+    );
+
+    $singleInvoice = $client->invoices()->create($single['body']);
+    $multiInvoice = $client->invoices()->create($multi['body']);
+    $legacyInvoice = $client->invoices()->get('inv_legacy_1');
+    $nullInvoice = $client->invoices()->get('inv_null_1');
+
+    $requests = $transport->requests();
+    assertSameValue(
+        'paymos-php/1.11.0',
+        $requests[0]['headers']['User-Agent'],
+        'Requests must send User-Agent with Version::VERSION 1.11.0.'
+    );
+    assertSameValue(
+        $single['body'],
+        json_decode($requests[0]['body'], true),
+        'Single-item products[] payload must pass through unchanged.'
+    );
+    assertSameValue(
+        $multi['body'],
+        json_decode($requests[1]['body'], true),
+        'Multi-item products[] payload must pass through unchanged without injecting optional keys.'
+    );
+    $decodedMultiBody = json_decode($requests[1]['body'], true);
+    assertFalseValue(
+        array_key_exists('description', $decodedMultiBody['products'][1]),
+        'Minimal item must not gain a null description key.'
+    );
+    assertFalseValue(
+        array_key_exists('image_url', $decodedMultiBody['products'][1]),
+        'Minimal item must not gain a null image_url key.'
+    );
+
+    assertSameValue(
+        $single['response']['order']['products'],
+        $singleInvoice['order']['products'],
+        'Single-item order.products must decode cleanly.'
+    );
+    assertSameValue(
+        $multi['response']['order']['products'],
+        $multiInvoice['order']['products'],
+        'Multi-item order.products must decode cleanly.'
+    );
+    assertFalseValue(
+        array_key_exists('products', $legacyInvoice['order']),
+        'Legacy invoice order without products must decode without products key.'
+    );
+    assertFalseValue(
+        array_key_exists('products', $nullInvoice['order']),
+        'Null-products invoice response must decode without products key.'
+    );
 }

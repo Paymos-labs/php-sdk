@@ -8,6 +8,12 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-16
+
+- docs(sdk,drupal): document invoice products[] and update OpenAPI snapshot
+- feat(sdk): release PHP SDK 1.11.0 helper InvoicePresentation (8.2)
+- feat(sdk): add products wire conformance fixtures (7.1)
+
 ## [1.10.2] - 2026-11-13
 
 - merge: integrate Windows WIP onto origin/main (CMS binding, SDK preview, dashboard, plugins, specs)
