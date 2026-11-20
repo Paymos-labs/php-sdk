@@ -172,7 +172,11 @@ function test_invoices_list_rejects_unknown_filter_locally()
 
 function test_invoices_resource_passes_products_and_decodes_order_products()
 {
-    assertSameValue('1.11.0', Version::VERSION, 'PHP SDK Version::VERSION must be 1.11.0.');
+    assertTrueValue(
+        preg_match('/^\d+\.\d+\.\d+$/', Version::VERSION) === 1
+            && version_compare(Version::VERSION, '1.11.0', '>='),
+        'PHP SDK Version::VERSION must be a SemVer release >= 1.11.0.'
+    );
 
     $contract = json_decode((string) file_get_contents(__DIR__ . '/../../conformance/contract.json'), true);
     $single = $contract['vectors']['invoices']['create_single_product'];
@@ -199,9 +203,9 @@ function test_invoices_resource_passes_products_and_decodes_order_products()
 
     $requests = $transport->requests();
     assertSameValue(
-        'paymos-php/1.11.0',
+        'paymos-php/' . Version::VERSION,
         $requests[0]['headers']['User-Agent'],
-        'Requests must send User-Agent with Version::VERSION 1.11.0.'
+        'Requests must send User-Agent matching Version::VERSION.'
     );
     assertSameValue(
         $single['body'],
@@ -218,10 +222,17 @@ function test_invoices_resource_passes_products_and_decodes_order_products()
         array_key_exists('description', $decodedMultiBody['products'][1]),
         'Minimal item must not gain a null description key.'
     );
-    assertFalseValue(
-        array_key_exists('image_url', $decodedMultiBody['products'][1]),
-        'Minimal item must not gain a null image_url key.'
-    );
+    foreach (array_slice($requests, 0, 2) as $request) {
+        $body = json_decode($request['body'], true);
+        foreach ($body['products'] as $product) {
+            assertFalseValue(array_key_exists('image_url', $product), 'Product requests must not contain the removed image_url key.');
+        }
+    }
+    foreach (array($singleInvoice, $multiInvoice) as $invoice) {
+        foreach ($invoice['order']['products'] as $product) {
+            assertFalseValue(array_key_exists('image_url', $product), 'Product responses must not contain the removed image_url key.');
+        }
+    }
 
     assertSameValue(
         $single['response']['order']['products'],

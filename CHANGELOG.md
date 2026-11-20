@@ -8,6 +8,11 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-20
+
+- fix(sdk): allow stamped release versions in PHP SDK tests and apply Java Spotless formatting
+- refactor(checkout): remove product images from invoice products
+
 ## [1.11.0] - 2026-11-16
 
 - docs(sdk,drupal): document invoice products[] and update OpenAPI snapshot

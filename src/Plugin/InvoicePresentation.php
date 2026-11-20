@@ -15,18 +15,16 @@ final class InvoicePresentation
     public const MAX_ITEMS = 50;
     private const MAX_TITLE_SCALARS = 200;
     private const MAX_DESCRIPTION_SCALARS = 2000;
-    private const MAX_IMAGE_URL_SCALARS = 2048;
     private const MAX_INT32_STRING = '2147483647';
 
     /**
      * Normalize one product line item or return null when required fields are invalid.
      *
-     * Missing or invalid optional `description` / `image_url` values are omitted
+     * Missing or invalid optional `description` values are omitted
      * from the returned array rather than failing the line item.
      *
      * @param string|null     $title
      * @param string|null     $description
-     * @param string|null     $imageUrl
      * @param int|string|null $quantity
      * @param string|null     $unitAmount
      * @return array<string, mixed>|null
@@ -34,7 +32,6 @@ final class InvoicePresentation
     public static function normalizeProduct(
         ?string $title,
         ?string $description,
-        ?string $imageUrl,
         $quantity,
         ?string $unitAmount
     ): ?array {
@@ -62,11 +59,6 @@ final class InvoicePresentation
         $normalizedDescription = self::normalizeDescription($description);
         if ($normalizedDescription !== null) {
             $item['description'] = $normalizedDescription;
-        }
-
-        $normalizedImageUrl = self::normalizeImageUrl($imageUrl);
-        if ($normalizedImageUrl !== null) {
-            $item['image_url'] = $normalizedImageUrl;
         }
 
         return $item;
@@ -98,15 +90,12 @@ final class InvoicePresentation
             $description = isset($candidate['description']) && is_string($candidate['description'])
                 ? $candidate['description']
                 : null;
-            $imageUrl = isset($candidate['image_url']) && is_string($candidate['image_url'])
-                ? $candidate['image_url']
-                : null;
             $quantity = array_key_exists('quantity', $candidate) ? $candidate['quantity'] : null;
             $unitAmount = isset($candidate['unit_amount']) && is_string($candidate['unit_amount'])
                 ? $candidate['unit_amount']
                 : null;
 
-            $normalized = self::normalizeProduct($title, $description, $imageUrl, $quantity, $unitAmount);
+            $normalized = self::normalizeProduct($title, $description, $quantity, $unitAmount);
             if ($normalized === null) {
                 return null;
             }
@@ -182,63 +171,6 @@ final class InvoicePresentation
                 return null;
             }
             return $retrimmed;
-        }
-
-        return $trimmed;
-    }
-
-    private static function normalizeImageUrl(?string $imageUrl): ?string
-    {
-        if ($imageUrl === null) {
-            return null;
-        }
-
-        $clean = str_replace("\0", '', $imageUrl);
-        if (!self::isValidUtf8($clean)) {
-            return null;
-        }
-
-        $trimmed = self::trimUnicode($clean);
-        if ($trimmed === null || $trimmed === '') {
-            return null;
-        }
-
-        $chars = self::splitUtf8WithinLimit($trimmed, self::MAX_IMAGE_URL_SCALARS);
-        if ($chars === null || count($chars) > self::MAX_IMAGE_URL_SCALARS) {
-            return null;
-        }
-
-        if (strpos($trimmed, '\\') !== false) {
-            return null;
-        }
-        if (preg_match('/[\x00-\x1F\x7F]|\p{Cc}|\s/u', $trimmed) === 1) {
-            return null;
-        }
-        if (preg_match('/\Ahttps:\/\//i', $trimmed) !== 1 || strlen($trimmed) <= 8) {
-            return null;
-        }
-
-        $afterScheme = substr($trimmed, 8);
-        $authorityEnd = strcspn($afterScheme, '/?#');
-        $rawAuthority = substr($afterScheme, 0, $authorityEnd);
-        if ($rawAuthority === '' || strpos($rawAuthority, '@') !== false) {
-            return null;
-        }
-
-        $parts = parse_url($trimmed);
-        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
-            return null;
-        }
-        if (strtolower((string) $parts['scheme']) !== 'https') {
-            return null;
-        }
-        if (isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        $host = (string) $parts['host'];
-        if ($host === '' || strpos($host, '@') !== false) {
-            return null;
         }
 
         return $trimmed;
