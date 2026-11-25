@@ -17,15 +17,15 @@ final class CurlTransport implements TransportInterface
             throw new \RuntimeException('Unable to initialize cURL.');
         }
 
-        $timeout = max(1, (int) $timeoutSeconds);
+        $timeoutMs = max(100, (int) round((float) $timeoutSeconds * 1000.0));
 
         curl_setopt_array($curl, array(
             CURLOPT_CUSTOMREQUEST => strtoupper((string) $method),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_TIMEOUT_MS => $timeoutMs,
             // Connect phase gets its own budget so a stalled TLS handshake can't
             // silently eat the entire request timeout.
-            CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
+            CURLOPT_CONNECTTIMEOUT_MS => min(10000, $timeoutMs),
             CURLOPT_HTTPHEADER => $this->formatHeaders($headers),
             CURLOPT_HEADER => true,
             // Always verify TLS. This SDK targets legacy shared hosting where a

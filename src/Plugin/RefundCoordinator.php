@@ -9,6 +9,9 @@ use Paymos\Exception\ApiException;
 
 final class RefundCoordinator
 {
+    /** Bounded GET attempts for an accepted POST whose reverse-read returned transient 401/403/404 (BUG-1347). */
+    public const MAX_READ_RETRIES = 6;
+
     /** @var Client */
     private $client;
     /** @var RefundIntentStoreInterface */
@@ -47,16 +50,25 @@ final class RefundCoordinator
                 if ($intent->cashState() === RefundStates::NOT_SUBMITTED) {
                     return RefundStates::NONE;
                 }
-                if ($intent->cashState() !== RefundStates::UNKNOWN) {
-                    return $this->action($intent->cashState());
+                if ($this->canRetryUnavailableRead($intent)) {
+                    // BUG-1347: retry ONLY GET using stored unverified candidate evidence — never POST again
+                    // and never apply native effects until full invoice/refund verification and exact binding succeed.
+                    $snapshot = $this->readAndBind($intent, $intent->candidateWithdrawalId());
+                    if ($snapshot === null) {
+                        return $this->action($this->store->getIntent($operationId)->cashState());
+                    }
+                } else {
+                    if ($intent->cashState() !== RefundStates::UNKNOWN) {
+                        return $this->action($intent->cashState());
+                    }
+                    // Replay the committed request to recover its ID; never adopt a callback ID.
+                    $this->submitLocked($intent);
+                    $intent = $this->store->getIntent($operationId);
+                    if ($intent->withdrawalId() === null) {
+                        return $this->action($intent->cashState());
+                    }
+                    $snapshot = $intent->observation();
                 }
-                // Replay the committed request to recover its ID; never adopt a callback ID.
-                $this->submitLocked($intent);
-                $intent = $this->store->getIntent($operationId);
-                if ($intent->withdrawalId() === null) {
-                    return $this->action($intent->cashState());
-                }
-                $snapshot = $intent->observation();
             }
             if ($snapshot === null) {
                 $id = $intent->withdrawalId();
@@ -155,7 +167,16 @@ final class RefundCoordinator
             $invoice = $this->client->invoices()->get($intent->invoiceId());
         } catch (ApiException $error) {
             if (in_array($error->statusCode(), array(401, 403, 404), true)) {
-                $this->review($intent, 'refund_read_unavailable');
+                $existingReason = $intent->toArray()['review_reason'];
+                $hasPermanentReview = $intent->projectionState() === RefundStates::NATIVE_REVIEW
+                    && $existingReason !== null
+                    && $existingReason !== 'refund_read_unavailable';
+                if (!$hasPermanentReview) {
+                    if ($intent->withdrawalId() === null && $this->store instanceof RefundCandidateStoreInterface) {
+                        $this->store->recordReadCandidate($intent->operationId(), $id, $intent->readRetryCount() + 1);
+                    }
+                    $this->review($intent, 'refund_read_unavailable');
+                }
             }
             return null;
         } catch (\RuntimeException $error) {
@@ -164,6 +185,7 @@ final class RefundCoordinator
         try {
             $snapshot = VerifiedRefund::fromApi($wire, $invoice, call_user_func($this->clock));
         } catch (\UnexpectedValueException $error) {
+            $this->clearReadCandidate($intent->operationId());
             $this->review($intent, 'refund_evidence_invalid');
             return null;
         }
@@ -175,25 +197,48 @@ final class RefundCoordinator
             || ($pin !== null && (!AmountGuard::amountsEqual($pin->principalDecimal(), $snapshot->principalDecimal())
                 || $pin->currency() !== $snapshot->currency() || $pin->network() !== $snapshot->network()
                 || !RefundRecipientIdentity::same($pin, $snapshot)))) {
+            $this->clearReadCandidate($intent->operationId());
             $this->review($intent, 'refund_binding_conflict');
             return null;
         }
         return $this->store->transaction(function () use ($intent, $id, $snapshot) {
             $binding = $this->store->bindWithdrawal($intent->operationId(), $id);
             if (!in_array($binding, array('bound', 'same'), true)) {
+                $this->clearReadCandidate($intent->operationId());
                 $this->review($intent, 'refund_binding_conflict');
                 return null;
             }
+            $this->clearReadCandidate($intent->operationId());
             $this->store->recordObservation($intent->operationId(), $snapshot);
             $state = RefundStates::cashState($snapshot->status());
-            $rewound = $intent->projectionState() === RefundStates::PROJECTION_APPLIED && $state !== RefundStates::COMPLETED;
-            $review = $rewound || $intent->projectionState() === RefundStates::NATIVE_REVIEW;
-            $this->store->recordState($intent->operationId(), $state,
-                $review ? RefundStates::NATIVE_REVIEW : ($intent->projectionState() === RefundStates::PROJECTION_APPLIED
-                    ? RefundStates::PROJECTION_APPLIED : RefundStates::PROJECTION_PENDING),
-                $rewound ? 'cash_rewound' : $intent->toArray()['review_reason']);
+            $data = $intent->toArray();
+            $recoverableReadReview = $intent->projectionState() === RefundStates::NATIVE_REVIEW
+                && $data['review_reason'] === 'refund_read_unavailable';
+            $hadProjection = $intent->projectionState() === RefundStates::PROJECTION_APPLIED
+                || ($recoverableReadReview && $data['projection'] !== null);
+            $rewound = $hadProjection && $state !== RefundStates::COMPLETED;
+            $review = $rewound || ($intent->projectionState() === RefundStates::NATIVE_REVIEW && !$recoverableReadReview);
+            $projectionState = $review ? RefundStates::NATIVE_REVIEW
+                : ($hadProjection ? RefundStates::PROJECTION_APPLIED : RefundStates::PROJECTION_PENDING);
+            $reason = $rewound ? 'cash_rewound' : ($recoverableReadReview ? null : $data['review_reason']);
+            $this->store->recordState($intent->operationId(), $state, $projectionState, $reason);
             return $snapshot;
         });
+    }
+
+    private function canRetryUnavailableRead(RefundIntent $intent): bool
+    {
+        return $intent->cashState() === RefundStates::REVIEW
+            && $intent->toArray()['review_reason'] === 'refund_read_unavailable'
+            && $intent->candidateWithdrawalId() !== null
+            && $intent->readRetryCount() < self::MAX_READ_RETRIES;
+    }
+
+    private function clearReadCandidate(string $operationId): void
+    {
+        if ($this->store instanceof RefundCandidateStoreInterface) {
+            $this->store->recordReadCandidate($operationId, null, 0);
+        }
     }
 
     private function matchesProjection(RefundIntent $intent, VerifiedRefund $snapshot, NativeProjectionResult $result): bool

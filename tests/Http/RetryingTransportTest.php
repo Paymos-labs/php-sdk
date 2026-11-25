@@ -207,3 +207,142 @@ function test_retrying_transport_refreshes_hmac_for_every_physical_attempt()
         }
     }
 }
+
+function test_retrying_transport_deadline_defers_long_retry_after_without_sleeping_or_retrying_early_bug1348()
+{
+    $now = 1000.0;
+    $slept = array();
+    $clock = static function () use (&$now) { return $now; };
+    $sleeper = static function ($us) use (&$now, &$slept) {
+        $slept[] = $us;
+        $now += $us / 1000000.0;
+    };
+
+    $deadline = \Paymos\Http\RequestDeadline::fromNow(6.0, $clock, $sleeper);
+    $attempts = 0;
+    $timeouts = array();
+    $wire = new class($attempts, $timeouts, $now) implements TransportInterface {
+        public $attempts;
+        public $timeouts;
+        public $now;
+        public function __construct(&$attempts, &$timeouts, &$now)
+        {
+            $this->attempts = &$attempts;
+            $this->timeouts = &$timeouts;
+            $this->now = &$now;
+        }
+        public function request($method, $url, array $headers, $body, $timeoutSeconds)
+        {
+            $this->attempts++;
+            $this->timeouts[] = $timeoutSeconds;
+            $this->now += 0.5;
+            return new HttpResponse(429, '{"error":"rate_limited"}', array('Retry-After' => '30'));
+        }
+    };
+
+    $retrying = new RetryingTransport($wire, new RetryPolicy(2, 150), $deadline);
+    $response = $retrying->request('GET', 'https://api.paymos.io/v1/invoices/inv_1', array(), '', 4);
+
+    assertSameValue(429, $response->statusCode(), 'Long Retry-After must return 429 to defer work.');
+    assertSameValue(1, $attempts, 'Must not retry earlier than Retry-After when it exceeds callback deadline.');
+    assertSameValue(array(), $slept, 'Must not sleep past callback deadline.');
+    assertTrueValue(abs($timeouts[0] - 4.0) < 0.01, 'Attempt timeout capped at configured attempt budget.');
+}
+
+function test_retrying_transport_deadline_bounds_cumulative_multi_read_and_500_backoff_bug1348()
+{
+    $now = 2000.0;
+    $slept = array();
+    $clock = static function () use (&$now) { return $now; };
+    $sleeper = static function ($us) use (&$now, &$slept) {
+        $slept[] = $us;
+        $now += $us / 1000000.0;
+    };
+
+    $deadline = \Paymos\Http\RequestDeadline::fromNow(6.0, $clock, $sleeper);
+    $calls = array();
+    $wire = new class($calls, $now) implements TransportInterface {
+        public $calls;
+        public $now;
+        public function __construct(&$calls, &$now)
+        {
+            $this->calls = &$calls;
+            $this->now = &$now;
+        }
+        public function request($method, $url, array $headers, $body, $timeoutSeconds)
+        {
+            $this->calls[] = array('url' => $url, 'timeout' => $timeoutSeconds);
+            if (count($this->calls) === 1) {
+                $this->now += 3.5;
+                return new HttpResponse(200, '{"ok":true}', array());
+            }
+            if (count($this->calls) === 2) {
+                $this->now += 2.0;
+                return new HttpResponse(500, '{"error":"upstream"}', array());
+            }
+            $this->now += 0.2;
+            return new HttpResponse(200, '{"recovered":true}', array());
+        }
+    };
+
+    $retrying = new RetryingTransport($wire, new RetryPolicy(2, 150), $deadline);
+    $first = $retrying->request('GET', 'https://api.paymos.io/v1/read-1', array(), '', 4);
+    assertSameValue(200, $first->statusCode(), 'First read succeeds.');
+    assertTrueValue(abs($calls[0]['timeout'] - 4.0) < 0.01, 'First read gets full attempt timeout.');
+
+    $second = $retrying->request('GET', 'https://api.paymos.io/v1/read-2', array(), '', 4);
+    assertSameValue(200, $second->statusCode(), 'Second read retries 500 within remaining shared budget.');
+    assertTrueValue(abs($calls[1]['timeout'] - 2.5) < 0.01, 'Second read capped by shared remaining budget.');
+    assertSameValue(array(150000), $slept, 'Backoff slept once using deadline sleeper.');
+    assertTrueValue(abs($calls[2]['timeout'] - 0.35) < 0.01, 'Retry timeout capped by remaining budget after backoff.');
+
+    // Exhausted budget fails fast before issuing a third read.
+    $now += 0.2;
+    $threw = false;
+    try {
+        $retrying->request('GET', 'https://api.paymos.io/v1/read-3', array(), '', 4);
+    } catch (RuntimeException $e) {
+        $threw = true;
+    }
+    assertTrueValue($threw, 'Exhausted deadline must throw before issuing another read.');
+}
+
+function test_retrying_transport_deadline_does_not_sleep_on_transport_error_without_margin_bug1348()
+{
+    $now = 3000.0;
+    $slept = array();
+    $clock = static function () use (&$now) { return $now; };
+    $sleeper = static function ($us) use (&$now, &$slept) {
+        $slept[] = $us;
+        $now += $us / 1000000.0;
+    };
+
+    $deadline = \Paymos\Http\RequestDeadline::fromNow(1.0, $clock, $sleeper);
+    $attempts = 0;
+    $wire = new class($attempts, $now) implements TransportInterface {
+        public $attempts;
+        public $now;
+        public function __construct(&$attempts, &$now)
+        {
+            $this->attempts = &$attempts;
+            $this->now = &$now;
+        }
+        public function request($method, $url, array $headers, $body, $timeoutSeconds)
+        {
+            $this->attempts++;
+            $this->now += 0.9; // Leaves 0.1s (< 150ms backoff + 250ms margin).
+            throw new RuntimeException('slow get timed out');
+        }
+    };
+
+    $retrying = new RetryingTransport($wire, new RetryPolicy(2, 150), $deadline);
+    $message = '';
+    try {
+        $retrying->request('GET', 'https://api.paymos.io/v1/invoices/inv_slow', array(), '', 4);
+    } catch (RuntimeException $e) {
+        $message = $e->getMessage();
+    }
+    assertSameValue('slow get timed out', $message, 'Original transport error propagates.');
+    assertSameValue(1, $attempts, 'Must not retry when backoff+margin exceeds remaining budget.');
+    assertSameValue(array(), $slept, 'Must not sleep when retry cannot fit.');
+}

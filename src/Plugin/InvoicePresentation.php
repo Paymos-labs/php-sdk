@@ -16,9 +16,15 @@ final class InvoicePresentation
     private const MAX_TITLE_SCALARS = 200;
     private const MAX_DESCRIPTION_SCALARS = 2000;
     private const MAX_INT32_STRING = '2147483647';
+    private const UNSET_ARG = "\0__PAYMOS_UNSET__";
 
     /**
      * Normalize one product line item or return null when required fields are invalid.
+     *
+     * Supports both the current 4-argument form `($title, $description, $quantity, $unitAmount)`
+     * and the deprecated 5-argument positional form `($title, $description, $imageUrl, $quantity, $unitAmount)`
+     * from v1.11.0, as well as PHP 8 named arguments including optional deprecated `imageUrl:`.
+     * Any deprecated `imageUrl` argument is ignored and never serialized onto the returned array.
      *
      * Missing or invalid optional `description` values are omitted
      * from the returned array rather than failing the line item.
@@ -26,15 +32,36 @@ final class InvoicePresentation
      * @param string|null     $title
      * @param string|null     $description
      * @param int|string|null $quantity
-     * @param string|null     $unitAmount
+     * @param mixed           $unitAmount
+     * @param mixed           $legacyUnitAmount
+     * @param string|null     $imageUrl
      * @return array<string, mixed>|null
      */
     public static function normalizeProduct(
         ?string $title,
         ?string $description,
         $quantity,
-        ?string $unitAmount
+        $unitAmount,
+        $legacyUnitAmount = self::UNSET_ARG,
+        ?string $imageUrl = null
     ): ?array {
+        if ($legacyUnitAmount !== self::UNSET_ARG) {
+            // Deprecated 5-argument positional ABI (eb025e2ae5):
+            // ($title, $description, ?string $imageUrl, $quantity, ?string $unitAmount).
+            $deprecatedImageUrl = $quantity;
+            if ($deprecatedImageUrl !== null && !is_string($deprecatedImageUrl)) {
+                return null;
+            }
+            $quantity = $unitAmount;
+            $unitAmount = $legacyUnitAmount;
+        }
+
+        // Deprecated named-argument compatibility slot; never serialized.
+        unset($imageUrl);
+
+        if ($unitAmount !== null && !is_string($unitAmount)) {
+            return null;
+        }
         $normalizedTitle = self::normalizeTitle($title);
         if ($normalizedTitle === null) {
             return null;

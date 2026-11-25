@@ -253,3 +253,67 @@ function test_invoices_resource_passes_products_and_decodes_order_products()
         'Null-products invoice response must decode without products key.'
     );
 }
+
+function test_invoices_create_strips_retired_product_image_keys_without_mutating_caller_payload()
+{
+    $transport = new CapturingTransport();
+    $client = new Client(
+        new ClientConfig('pk_test_key', 'sk_test_secret', 'https://api.paymos.io', 30),
+        $transport,
+        static function () { return 1709000000; }
+    );
+
+    $payload = array(
+        'project_id' => 'prj_123',
+        'amount' => '59.00',
+        'currency' => 'USD',
+        'external_order_id' => 'order-legacy-image-strip',
+        'products' => array(
+            array(
+                'title' => 'Studio Pro',
+                'description' => 'One-month access',
+                'quantity' => 2,
+                'unit_amount' => '24.50',
+                'image_url' => 'https://cdn.example/retired.png',
+                'sku' => 'SKU-001',
+            ),
+            array(
+                'title' => 'Priority Support',
+                'quantity' => 1,
+                'unit_amount' => '12.00',
+                'image_url' => null,
+                'imageUrl' => 'https://cdn.example/retired-camel.png',
+                'custom_tag' => 'keep-me',
+            ),
+        ),
+    );
+    $originalSnapshot = json_encode($payload);
+
+    $client->invoices()->create($payload);
+
+    $sent = json_decode($transport->requests[0]['body'], true);
+    assertSameValue(
+        array(
+            array(
+                'title' => 'Studio Pro',
+                'description' => 'One-month access',
+                'quantity' => 2,
+                'unit_amount' => '24.50',
+                'sku' => 'SKU-001',
+            ),
+            array(
+                'title' => 'Priority Support',
+                'quantity' => 1,
+                'unit_amount' => '12.00',
+                'custom_tag' => 'keep-me',
+            ),
+        ),
+        $sent['products'],
+        'Outgoing PHP products must strip retired image_url/imageUrl keys while preserving normal and extensible fields.'
+    );
+    foreach ($sent['products'] as $product) {
+        assertFalseValue(array_key_exists('image_url', $product), 'Sent product must not contain image_url.');
+        assertFalseValue(array_key_exists('imageUrl', $product), 'Sent product must not contain imageUrl.');
+    }
+    assertSameValue($originalSnapshot, json_encode($payload), 'Caller payload array must remain unmutated.');
+}

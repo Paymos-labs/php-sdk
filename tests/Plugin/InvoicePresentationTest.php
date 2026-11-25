@@ -197,3 +197,141 @@ function test_invoice_presentation_normalize_products_all_or_nothing_and_max_ite
     );
     assertSameValue(null, InvoicePresentation::normalizeProducts($cartWithNonArray), 'Any non-array candidate must fall back entire cart to null.');
 }
+
+function test_invoice_presentation_supports_legacy_five_arg_and_named_arguments_without_image_url()
+{
+    $legacyWithNullImage = InvoicePresentation::normalizeProduct(
+        'Studio Pro',
+        '<p>One-month access</p>',
+        null,
+        2,
+        '24.50'
+    );
+    assertSameValue(
+        array(
+            'title' => 'Studio Pro',
+            'quantity' => 2,
+            'unit_amount' => '24.50',
+            'description' => 'One-month access',
+        ),
+        $legacyWithNullImage,
+        'Legacy 5-arg positional call with null imageUrl must keep quantity/unit_amount intact and omit image_url.'
+    );
+    assertFalseValue(array_key_exists('image_url', $legacyWithNullImage), 'Legacy 5-arg result must never contain image_url.');
+
+    $legacyWithUrlImage = InvoicePresentation::normalizeProduct(
+        'Studio Pro',
+        'One-month access',
+        'https://cdn.example/retired.png',
+        '3',
+        '24.50'
+    );
+    assertSameValue(
+        array(
+            'title' => 'Studio Pro',
+            'quantity' => 3,
+            'unit_amount' => '24.50',
+            'description' => 'One-month access',
+        ),
+        $legacyWithUrlImage,
+        'Legacy 5-arg positional call with URL imageUrl must ignore imageUrl without shifting quantity/unit_amount.'
+    );
+
+    $legacyWithNumericLookingImage = InvoicePresentation::normalizeProduct(
+        'Studio Pro',
+        null,
+        '999',
+        4,
+        '15.00'
+    );
+    assertSameValue(
+        array(
+            'title' => 'Studio Pro',
+            'quantity' => 4,
+            'unit_amount' => '15.00',
+        ),
+        $legacyWithNumericLookingImage,
+        'Numeric-looking deprecated imageUrl in 5-arg call must not be misread as quantity.'
+    );
+
+    assertSameValue(
+        null,
+        InvoicePresentation::normalizeProduct('Studio Pro', null, 'https://cdn.example/retired.png', 2, null),
+        'Legacy 5-arg call with null unitAmount must return null without misclassifying as 4-arg.'
+    );
+    assertSameValue(
+        null,
+        InvoicePresentation::normalizeProduct('Studio Pro', null, 123, 2, '10.00'),
+        'Legacy 5-arg call with non-string deprecated imageUrl must return null.'
+    );
+    assertSameValue(
+        null,
+        InvoicePresentation::normalizeProduct('Studio Pro', null, 2, 100),
+        '4-arg call with non-string unitAmount must return null.'
+    );
+
+    $cartWithLegacyImageKey = InvoicePresentation::normalizeProducts(array(
+        array(
+            'title' => 'Canvas',
+            'description' => 'Archival print',
+            'image_url' => 'https://cdn.example/retired.png',
+            'quantity' => 2,
+            'unit_amount' => '19.00',
+        ),
+    ));
+    assertSameValue(
+        array(
+            array(
+                'title' => 'Canvas',
+                'quantity' => 2,
+                'unit_amount' => '19.00',
+                'description' => 'Archival print',
+            ),
+        ),
+        $cartWithLegacyImageKey,
+        'normalizeProducts must ignore legacy image_url key in candidate arrays.'
+    );
+
+    if (PHP_VERSION_ID >= 80000) {
+        $namedCurrent = call_user_func_array(
+            array(InvoicePresentation::class, 'normalizeProduct'),
+            array(
+                'title' => 'Studio Pro',
+                'description' => 'Named 4-arg',
+                'quantity' => 2,
+                'unitAmount' => '24.50',
+            )
+        );
+        assertSameValue(
+            array(
+                'title' => 'Studio Pro',
+                'quantity' => 2,
+                'unit_amount' => '24.50',
+                'description' => 'Named 4-arg',
+            ),
+            $namedCurrent,
+            'PHP 8 named 4-arg call must normalize cleanly.'
+        );
+
+        $namedWithDeprecatedImageUrl = call_user_func_array(
+            array(InvoicePresentation::class, 'normalizeProduct'),
+            array(
+                'title' => 'Studio Pro',
+                'description' => 'Named 5-arg',
+                'imageUrl' => 'https://cdn.example/retired.png',
+                'quantity' => 5,
+                'unitAmount' => '24.50',
+            )
+        );
+        assertSameValue(
+            array(
+                'title' => 'Studio Pro',
+                'quantity' => 5,
+                'unit_amount' => '24.50',
+                'description' => 'Named 5-arg',
+            ),
+            $namedWithDeprecatedImageUrl,
+            'PHP 8 named call including deprecated imageUrl must succeed and omit image_url.'
+        );
+    }
+}

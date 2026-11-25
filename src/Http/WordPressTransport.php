@@ -16,9 +16,10 @@ final class WordPressTransport implements TransportInterface
             throw new \RuntimeException('The WordPress HTTP API is unavailable.');
         }
 
+        $timeout = (float) $timeoutSeconds;
         $response = wp_safe_remote_request($url, array(
             'method' => strtoupper((string) $method),
-            'timeout' => max(1, (int) $timeoutSeconds),
+            'timeout' => $timeout > 0.0 ? max(0.1, $timeout) : 1.0,
             'redirection' => 0,
             'sslverify' => true,
             'blocking' => true,

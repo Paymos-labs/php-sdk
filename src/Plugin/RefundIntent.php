@@ -53,7 +53,15 @@ final class RefundIntent
         if (isset($data['projection']) && is_array($data['projection'])) {
             $data['projection'] = NativeProjectionResult::fromStorage($data['projection']);
         }
-        $this->data = $data + array('withdrawal_id' => null, 'observation' => null,
+        if (isset($data['candidate_withdrawal_id'])
+            && (!is_string($data['candidate_withdrawal_id']) || trim($data['candidate_withdrawal_id']) === '')) {
+            throw new \InvalidArgumentException('Invalid candidate withdrawal ID.');
+        }
+        if (isset($data['read_retry_count']) && (!is_int($data['read_retry_count']) || $data['read_retry_count'] < 0)) {
+            throw new \InvalidArgumentException('Invalid read retry count.');
+        }
+        $this->data = $data + array('withdrawal_id' => null, 'candidate_withdrawal_id' => null,
+            'read_retry_count' => 0, 'observation' => null,
             'cash_state' => RefundStates::NOT_SUBMITTED, 'projection_state' => RefundStates::PROJECTION_NONE,
             'review_reason' => null, 'projection' => null, 'effects' => array());
     }
@@ -66,6 +74,8 @@ final class RefundIntent
     public function mode(): string { return $this->data['mode']; }
     public function externalOrderId(): string { return $this->data['external_order_id']; }
     public function withdrawalId(): ?string { return $this->data['withdrawal_id']; }
+    public function candidateWithdrawalId(): ?string { return $this->data['candidate_withdrawal_id']; }
+    public function readRetryCount(): int { return $this->data['read_retry_count']; }
     public function cashState(): string { return $this->data['cash_state']; }
     public function projectionState(): string { return $this->data['projection_state']; }
     public function fullDraft(): ?array { return $this->data['full_draft']; }

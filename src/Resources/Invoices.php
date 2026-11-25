@@ -25,7 +25,32 @@ final class Invoices extends BaseResource
      */
     public function create(array $payload)
     {
-        return $this->requestJson('POST', self::PATH, $payload);
+        return $this->requestJson('POST', self::PATH, self::sanitizeCreatePayload($payload));
+    }
+
+    /**
+     * Strip retired product image keys on an outgoing copy without mutating caller data
+     * or allowlisting unrelated extensible fields.
+     *
+     * @param array $payload
+     * @return array
+     */
+    private static function sanitizeCreatePayload(array $payload)
+    {
+        if (!isset($payload['products']) || !is_array($payload['products'])) {
+            return $payload;
+        }
+
+        $products = array();
+        foreach ($payload['products'] as $key => $product) {
+            if (is_array($product)) {
+                unset($product['image_url'], $product['imageUrl']);
+            }
+            $products[$key] = $product;
+        }
+        $payload['products'] = $products;
+
+        return $payload;
     }
 
     /**

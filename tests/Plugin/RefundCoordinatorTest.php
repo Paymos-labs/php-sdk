@@ -9,6 +9,7 @@ use Paymos\Http\TransportInterface;
 use Paymos\Plugin\EffectClaim;
 use Paymos\Plugin\NativeProjectionResult;
 use Paymos\Plugin\NativeRefundProjectorInterface;
+use Paymos\Plugin\RefundCandidateStoreInterface;
 use Paymos\Plugin\RefundCoordinator;
 use Paymos\Plugin\RefundIntent;
 use Paymos\Plugin\RefundIntentPage;
@@ -24,7 +25,7 @@ final class RefundMemoryDatabase
     public $bindingConflict = false;
 }
 
-final class RefundMemoryStore implements RefundIntentStoreInterface
+final class RefundMemoryStore implements RefundIntentStoreInterface, RefundCandidateStoreInterface
 {
     public $db;
 
@@ -111,6 +112,11 @@ final class RefundMemoryStore implements RefundIntentStoreInterface
     public function recordProjection(string $operationId, NativeProjectionResult $result): void
     {
         $this->replace($operationId, array('projection' => $result));
+    }
+
+    public function recordReadCandidate(string $operationId, ?string $candidateWithdrawalId, int $retryCount): void
+    {
+        $this->replace($operationId, array('candidate_withdrawal_id' => $candidateWithdrawalId, 'read_retry_count' => $retryCount));
     }
 
     public function recordState(string $operationId, string $cashState, string $projectionState, ?string $reason): void
@@ -628,4 +634,146 @@ function test_refund_coordinator_transient_preflight_retries_same_saved_intent()
     assertSameValue(2, $native->preflightCalls, 'Every initial submission revalidates the saved draft.');
     assertSameValue($intent->externalOrderId(), json_decode($transport->requests[0]['body'], true)['external_order_id'], 'Recovery preserves the committed key.');
     assertSameValue(1, count($store->db->rows), 'Recovery does not create another intent.');
+}
+
+function test_refund_coordinator_transient_403_reverse_read_recovers_via_get_without_new_post_or_duplicate_projection()
+{
+    $intent = coordinator_intent('r403', 'full');
+    $wire = coordinator_wire($intent, 'completed', '120');
+    // 1. Accepted POST returns withdrawal_id, then immediate GET returns 403 (e.g. temporary restriction).
+    $coordinator = coordinator_fixture($intent, array(
+        refund_test_response($wire),
+        refund_test_problem(403, 'access_restricted'),
+    ), $store, $native, $transport);
+
+    assertSameValue('review', $coordinator->submit('r403'), 'Unverified POST cannot authorize native projection.');
+    $afterSubmit = $store->getIntent('r403');
+    assertSameValue(null, $afterSubmit->withdrawalId(), 'Candidate ID is NOT an authoritative binding.');
+    assertSameValue('wdr_r403', $afterSubmit->candidateWithdrawalId(), 'Candidate withdrawal ID is preserved as unverified evidence.');
+    assertSameValue(1, $afterSubmit->readRetryCount(), 'First failed GET counts toward bounded retries.');
+    assertSameValue('refund_read_unavailable', $afterSubmit->toArray()['review_reason'], 'Recoverable read reason is recorded.');
+    assertSameValue(array(), $native->financial, 'No native refund before verified GET.');
+
+    // 2. Restart process; restriction still active on first reconcile → GET only, still REVIEW, no new POST.
+    $store = coordinator_reload_store($store);
+    $native->store = $store;
+    $coordinator = coordinator_restart($store, $native, array(
+        refund_test_problem(403, 'access_restricted'),
+    ), $transport);
+    assertSameValue('show_review', $coordinator->reconcile('r403'), 'Repeated 403 stays in review.');
+    assertSameValue(1, count($transport->requests), 'Only one GET attempt.');
+    assertSameValue('GET', $transport->requests[0]['method'], 'Recovery never sends a new POST.');
+    assertSameValue(null, $store->getIntent('r403')->withdrawalId(), 'Still unbound while 403 persists.');
+    assertSameValue(2, $store->getIntent('r403')->readRetryCount(), 'Retry counter advances.');
+    assertSameValue(array(), $native->financial, 'Still no native refund while 403 persists.');
+
+    // 3. Restriction removed → reconcile uses ONLY GET, verifies invoice+refund, binds, and applies native refund ONCE.
+    $coordinator = coordinator_restart($store, $native, array_merge(
+        coordinator_reads($wire),
+        coordinator_reads($wire)
+    ), $transport);
+    assertSameValue('apply_completed', $coordinator->reconcile('r403'), 'Lifted 403 recovers verified completed refund.');
+    assertSameValue('wdr_r403', $store->getIntent('r403')->withdrawalId(), 'Authoritative binding established only after full verification.');
+    assertSameValue(null, $store->getIntent('r403')->candidateWithdrawalId(), 'Candidate evidence cleared after binding.');
+    assertSameValue('completed', $store->getIntent('r403')->cashState(), 'Cash state reflects verified GET.');
+    assertSameValue('applied', $store->getIntent('r403')->projectionState(), 'Native projection applied.');
+    assertSameValue(null, $store->getIntent('r403')->toArray()['review_reason'], 'Recoverable review reason cleared.');
+    assertSameValue(array('r403' => '10000'), $native->financial, 'Single native full refund applied.');
+    foreach ($transport->requests as $req) {
+        assertSameValue('GET', $req['method'], 'Recovery after 403 must never issue POST.');
+    }
+
+    // 4. Subsequent reconcile reuses marker with zero duplicate native effect.
+    assertSameValue('resume_recovery', $coordinator->reconcile('r403'), 'Subsequent reconcile is idempotent.');
+    assertSameValue(1, count($native->financial), 'No duplicate native refund.');
+}
+
+function test_refund_coordinator_transient_403_recovery_rejects_foreign_id_and_invalid_evidence_permanently()
+{
+    // Case A: foreign withdrawal/project returned after 403 lifted → permanent refund_binding_conflict, candidate cleared.
+    $intent = coordinator_intent('r403_foreign', 'full');
+    $wire = coordinator_wire($intent, 'completed', '120');
+    $coordinator = coordinator_fixture($intent, array(
+        refund_test_response($wire),
+        refund_test_problem(403, 'access_restricted'),
+    ), $store, $native, $transport);
+    assertSameValue('review', $coordinator->submit('r403_foreign'), 'Enters recoverable review on 403.');
+
+    $foreignWire = array_replace($wire, array('project_id' => 'prj_foreign'));
+    $coordinator = coordinator_restart($store, $native, coordinator_reads($foreignWire, array('project_id' => 'prj_foreign')), $transport);
+    assertSameValue('show_review', $coordinator->reconcile('r403_foreign'), 'Foreign project fails closed.');
+    assertSameValue('refund_binding_conflict', $store->getIntent('r403_foreign')->toArray()['review_reason'], 'Permanent conflict reason recorded.');
+    assertSameValue(null, $store->getIntent('r403_foreign')->withdrawalId(), 'No binding on conflict.');
+    assertSameValue(null, $store->getIntent('r403_foreign')->candidateWithdrawalId(), 'Candidate cleared on permanent conflict.');
+    assertSameValue(array(), $native->financial, 'Zero native effects on conflict.');
+
+    // Further reconcile must not issue any HTTP requests once permanently conflicted.
+    $coordinator = coordinator_restart($store, $native, array(), $transport);
+    assertSameValue('show_review', $coordinator->reconcile('r403_foreign'), 'Permanent conflict stays in review.');
+    assertSameValue(array(), $transport->requests, 'No further GET or POST after permanent conflict.');
+
+    // Case B: malformed evidence returned after 403 lifted → permanent refund_evidence_invalid, candidate cleared.
+    $intent2 = coordinator_intent('r403_bad', 'overpayment');
+    $wire2 = coordinator_wire($intent2, 'completed', '20');
+    $coordinator2 = coordinator_fixture($intent2, array(
+        refund_test_response($wire2),
+        refund_test_problem(403, 'access_restricted'),
+    ), $store2, $native2, $transport2);
+    assertSameValue('review', $coordinator2->submit('r403_bad'), 'Enters recoverable review on 403.');
+
+    $brokenWire = $wire2;
+    $brokenWire['amount'] = 'not-a-decimal';
+    $coordinator2 = coordinator_restart($store2, $native2, coordinator_reads($brokenWire), $transport2);
+    assertSameValue('show_review', $coordinator2->reconcile('r403_bad'), 'Malformed evidence fails closed.');
+    assertSameValue('refund_evidence_invalid', $store2->getIntent('r403_bad')->toArray()['review_reason'], 'Permanent evidence reason recorded.');
+    assertSameValue(null, $store2->getIntent('r403_bad')->candidateWithdrawalId(), 'Candidate cleared on invalid evidence.');
+    assertSameValue(array(), $native2->notes, 'Zero native effects on invalid evidence.');
+}
+
+function test_refund_coordinator_transient_403_retry_is_bounded_and_never_replays_post()
+{
+    $intent = coordinator_intent('r403_cap', 'overpayment');
+    $wire = coordinator_wire($intent, 'created', '20');
+    $responses = array(refund_test_response($wire));
+    for ($i = 0; $i < RefundCoordinator::MAX_READ_RETRIES; $i++) {
+        $responses[] = refund_test_problem(403, 'access_restricted');
+    }
+    $coordinator = coordinator_fixture($intent, $responses, $store, $native, $transport);
+    assertSameValue('review', $coordinator->submit('r403_cap'), 'Initial submit records attempt 1.');
+    for ($i = 1; $i < RefundCoordinator::MAX_READ_RETRIES; $i++) {
+        assertSameValue('show_review', $coordinator->reconcile('r403_cap'), 'Bounded retry attempt ' . ($i + 1));
+    }
+    $requestsAtCap = count($transport->requests);
+    assertSameValue(1 + RefundCoordinator::MAX_READ_RETRIES, $requestsAtCap, '1 POST + MAX_READ_RETRIES GET attempts total.');
+
+    // Next reconcile must NOT issue any further GET or POST once cap is reached.
+    assertSameValue('show_review', $coordinator->reconcile('r403_cap'), 'Exhausted retries remain in review.');
+    assertSameValue($requestsAtCap, count($transport->requests), 'No HTTP call after retry budget exhausted.');
+    assertSameValue('review', $coordinator->submit('r403_cap'), 'Repeated submit never sends a second POST.');
+    assertSameValue($requestsAtCap, count($transport->requests), 'Still no second POST.');
+}
+
+function test_refund_coordinator_bound_permanent_review_is_not_cleared_by_transient_403()
+{
+    $intent = coordinator_intent('r403_perm', 'full');
+    $wire = coordinator_wire($intent, 'completed', '120');
+    $coordinator = coordinator_fixture($intent, array_merge(
+        array(refund_test_response($wire)),
+        coordinator_reads($wire),
+        coordinator_reads($wire),
+        array(refund_test_problem(403, 'access_restricted')),
+        coordinator_reads($wire)
+    ), $store, $native, $transport);
+
+    $coordinator->submit('r403_perm');
+    $native->ambiguous = true;
+    assertSameValue('show_review', $coordinator->reconcile('r403_perm'), 'Ambiguous marker enters permanent manual_native_change review.');
+    assertSameValue('manual_native_change', $store->getIntent('r403_perm')->toArray()['review_reason'], 'Permanent review reason set.');
+
+    // Transient 403 must NOT overwrite permanent review reason, and subsequent 200 must NOT clear it.
+    assertSameValue('show_review', $coordinator->reconcile('r403_perm'), '403 keeps review.');
+    assertSameValue('manual_native_change', $store->getIntent('r403_perm')->toArray()['review_reason'], 'Permanent review reason preserved across 403.');
+    $native->ambiguous = false;
+    assertSameValue('show_review', $coordinator->reconcile('r403_perm'), 'Permanent review cannot be cleared by read recovery.');
+    assertSameValue(array(), $native->financial, 'No native write while permanent review stands.');
 }
