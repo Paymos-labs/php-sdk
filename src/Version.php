@@ -6,5 +6,5 @@ namespace Paymos;
 
 final class Version
 {
-    public const VERSION = '1.12.0';
+    public const VERSION = '1.13.0';
 }

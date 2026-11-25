@@ -8,6 +8,12 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-25
+
+- fix(php-sdk): remove redundant null check after isset in RefundIntent for phpstan [skip ecosystem release]
+- fix: close bug batches 11-12 across SDKs, CMS plugins, workers, proxy, backup and admin
+- feat(platform): integrate pending main WIP — drop fiat_exchange_rates/VES, blockchain/worker fix batches 1-7, compact auth email layout, status-worker, plugins, forge and docs
+
 ## [1.12.0] - 2026-11-25
 
 - fix(php-sdk): remove redundant null check after isset in RefundIntent for phpstan [skip ecosystem release]
